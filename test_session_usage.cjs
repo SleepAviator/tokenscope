@@ -1,4 +1,16 @@
 const assert = require('node:assert/strict');
+const {timeResolution,timeLabels,timeLabel}=require('./session_usage.js');
+const twoDays=timeResolution('2026-09-30','2026-10-01',[],1000);
+const threeDays=timeResolution('2026-09-30','2026-10-02',[],1000);
+assert.equal(twoDays.hours,2);
+assert.equal(threeDays.hours,2);
+assert.equal(timeLabels(twoDays).length,24);
+assert.equal(timeLabels(threeDays).length,36);
+assert.equal(timeResolution('2026-09-30','2026-10-02',[],600).hours,3);
+assert.equal(timeResolution('2026-09-30','2026-09-30',[],600).hours,1);
+assert.equal(timeResolution('2026-09-01','2026-09-30',[],1000).intraday,false);
+assert.equal(timeResolution('','',[{date:'2026-09-30'},{date:'2026-10-01'}],1000).hours,2);
+assert.equal(timeLabel('2026-10-01T04:00',true),'10-01 04:00');
 const {chartBuckets}=require('./session_usage.js');
 const hourlyBuckets=chartBuckets([{hour:'02',model:'a',tokens:100,cost_usd:'0.25'},
   {hour:'02',model:'b',tokens:50,cost_usd:'0.10'},
@@ -9,6 +21,20 @@ assert.equal(hourlyBuckets[2].tokens,150);
 assert.equal(hourlyBuckets[2].cost,0.35);
 assert.equal(hourlyBuckets.at(-1).date,'Unknown hour');
 assert.equal(hourlyBuckets.at(-1).tokens,20);
+const shortRows=[
+  {date:'2026-09-30',hour:'22',model:'a',tokens:40,cost_usd:'0.20'},
+  {date:'2026-09-30',hour:'23',model:'b',tokens:60,cost_usd:'0.30'},
+  {date:'2026-10-01',hour:'00',model:'a',tokens:20,cost_usd:'0.10'},
+  {date:'2026-10-01',hour:'Unknown hour',model:'a',tokens:10,cost_usd:'0.05'},
+];
+const shortBuckets=chartBuckets(shortRows,twoDays);
+assert.equal(shortBuckets.length,25);
+assert.equal(shortBuckets.find(b=>b.date==='2026-09-30T22:00').tokens,100);
+assert.equal(shortBuckets.find(b=>b.date==='2026-09-30T22:00').models.get('b'),60);
+assert.equal(shortBuckets.find(b=>b.date==='2026-10-01T00:00').tokens,20);
+assert.equal(shortBuckets.reduce((sum,b)=>sum+b.tokens,0),130);
+assert.ok(Math.abs(shortBuckets.reduce((sum,b)=>sum+b.cost,0)-.65)<1e-12);
+assert.equal(shortBuckets.at(-1).date,'Unknown hour');
 const {withNativeTPS}=require('./session_usage.js');
 const rates=[{tps_count:2,tps_sum:80,tps_max:50,native_tps_count:1,native_tps_sum:100,native_tps_max:100,tokens:123,requests:4}];
 const enabled=withNativeTPS(rates)[0],disabled=withNativeTPS(rates,false)[0];
@@ -153,6 +179,16 @@ assert.equal(matrix.sessions.length,1);assert.equal(matrix.min,50);assert.equal(
 assert.equal(matrix.dates.length,25); // old snapshots explicitly retain unknown-time usage
 assert.equal(matrix.sessions[0].days.get('Unknown hour'),50);
 const hourly = sessionMatrix([{...base,date:'2026-02-01',hours:{'09':20,'23':30}}], '2026-02-01','2026-02-01');
+const adaptiveMatrix=sessionMatrix([
+  {...base,date:'2026-09-30',hours:{'22':20,'23':30}},
+  {...base,date:'2026-10-01',hours:{'00':40}},
+],twoDays.from,twoDays.through,twoDays);
+assert.deepEqual(adaptiveMatrix.dates,shortBuckets.map(b=>b.date));
+assert.equal(adaptiveMatrix.sessions[0].days.get('2026-09-30T22:00'),50);
+assert.equal(adaptiveMatrix.sessions[0].days.get('2026-10-01T00:00'),40);
+assert.equal(adaptiveMatrix.sessions[0].days.get('Unknown hour'),10);
+assert.equal([...adaptiveMatrix.sessions[0].days.values()].reduce((sum,n)=>sum+n,0),100);
+assert.equal(adaptiveMatrix.sessions[0].days.has('2026-09-30T00:00'),false);
 assert.equal(hourly.dates.length,24);
 assert.equal(hourly.sessions[0].days.get('09:00'),20);
 assert.equal(hourly.sessions[0].days.get('23:00'),30);

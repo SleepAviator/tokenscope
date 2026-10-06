@@ -44,14 +44,44 @@ function availableUsageModels(rows, sessionRows, from, through) {
 function filterUsageRows(rows, from, through, selected) {
   return rows.filter(r => (!from || r.date >= from) && (!through || r.date <= through) && selected.has(r.model));
 }
+// Use wall-clock date/hour labels already aligned to the dashboard host timezone.
+// UTC arithmetic here enumerates calendar slots without applying the viewer timezone.
+function timeResolution(from, through, rows, width=1000) {
+  const observed=rows.map(r=>r.date).sort();
+  const start=from||observed[0],end=through||observed.at(-1);
+  const days=(Date.parse(end+'T00:00:00Z')-Date.parse(start+'T00:00:00Z'))/86400000+1;
+  const target=Math.max(24,Math.min(72,Math.floor(width/24)));
+  const hours=days===1?1:days>0&&days<=14?([1,2,3,6,12,24].find(h=>days*24/h<=target)||24):24;
+  return {from:start,through:end,hours,days,intraday:hours<24};
+}
+function timeSlot(date,hour,resolution) {
+  if(!resolution.intraday)return date;
+  if(hour==='Unknown hour'||hour===undefined)return 'Unknown hour';
+  const label=String(Math.floor(Number(hour)/resolution.hours)*resolution.hours).padStart(2,'0')+':00';
+  return resolution.days===1?label:date+'T'+label;
+}
+function timeLabels(resolution) {
+  const labels=[];
+  for(let t=Date.parse(resolution.from+'T00:00:00Z'),end=Date.parse(resolution.through+'T00:00:00Z');t<=end;t+=86400000){
+    const date=new Date(t).toISOString().slice(0,10);
+    if(!resolution.intraday)labels.push(date);
+    else for(let hour=0;hour<24;hour+=resolution.hours)labels.push(timeSlot(date,String(hour),resolution));
+  }
+  return labels;
+}
+function timeLabel(key,short=false) {
+  return short?key.replace(/^\d{4}-/,'').replace('T',' '):key.replace('T',' ');
+}
 function chartBuckets(rows, hourly=false) {
   const buckets=new Map();
-  if(hourly)for(let hour=0;hour<24;hour++){
+  const resolution=typeof hourly==='object'?hourly:null;
+  if(resolution?.intraday)for(const key of timeLabels(resolution))buckets.set(key,{date:key,tokens:0,cost:0,models:new Map()});
+  if(hourly&&!resolution)for(let hour=0;hour<24;hour++){
     const key=String(hour).padStart(2,'0')+':00';
     buckets.set(key,{date:key,tokens:0,cost:0,models:new Map()});
   }
   for(const r of rows){
-    const key=hourly?(r.hour==='Unknown hour'?r.hour:r.hour+':00'):r.date;
+    const key=resolution?timeSlot(r.date,r.hour,resolution):hourly?(r.hour==='Unknown hour'?r.hour:r.hour+':00'):r.date;
     if(!buckets.has(key))buckets.set(key,{date:key,tokens:0,cost:0,models:new Map()});
     const bucket=buckets.get(key);
     bucket.tokens+=r.tokens;bucket.cost+=Number(r.cost_usd);
@@ -121,8 +151,8 @@ function sessionDetails(rows, key) {
   return {session,daily:summarize('date').sort((a,b)=>a.value.localeCompare(b.value)),
           models:summarize('model').sort((a,b)=>b.tokens-a.tokens||a.value.localeCompare(b.value))};
 }
-function sessionMatrix(rows, from, through) {
-  const hourly = Boolean(from && from === through);
+function sessionMatrix(rows, from, through, resolution=null) {
+  const hourly = resolution?resolution.intraday:Boolean(from && from === through);
   const sessions = new Map();
   for (const r of rows) {
     const key = sessionIdentity(r);
@@ -132,7 +162,7 @@ function sessionMatrix(rows, from, through) {
     s.total += r.tokens;
     if (hourly) {
       for (const [hour, tokens] of Object.entries(r.hours || {})) {
-        const label = hour + ':00';
+        const label = resolution?timeSlot(r.date,hour,resolution):hour + ':00';
         s.days.set(label, (s.days.get(label) || 0) + tokens);
       }
       const missing = r.tokens - Object.values(r.hours || {}).reduce((sum, value) => sum + value, 0);
@@ -141,7 +171,10 @@ function sessionMatrix(rows, from, through) {
   }
   const ordered = [...sessions.values()].sort((a,b)=>b.total-a.total||a.key.localeCompare(b.key));
   const observed = rows.map(r=>r.date).sort(), dates = [];
-  if (hourly && observed.length) {
+  if (resolution && observed.length) {
+    dates.push(...timeLabels(resolution));
+    if(ordered.some(s=>s.days.has('Unknown hour')))dates.push('Unknown hour');
+  } else if (hourly && observed.length) {
     dates.push(...Array.from({length:24}, (_, hour) => String(hour).padStart(2,'0') + ':00'));
     if (ordered.some(s => s.days.has('Unknown hour'))) dates.push('Unknown hour');
   } else if (observed.length) {
@@ -186,4 +219,4 @@ function temporalRuns(dates, days) {
   });
   return runs;
 }
-if (typeof module !== 'undefined') module.exports = {chartBuckets,withNativeTPS,availableUsageModels,visibleSessionRows,leaderPeriod,modelsInDateRange,matchingModels,filterUsageRows,sessionIdentity,summarizeSessions,sessionDetails,sessionMatrix,jetColor,temporalRuns,temporalColor};
+if (typeof module !== 'undefined') module.exports = {timeResolution,timeSlot,timeLabels,timeLabel,chartBuckets,withNativeTPS,availableUsageModels,visibleSessionRows,leaderPeriod,modelsInDateRange,matchingModels,filterUsageRows,sessionIdentity,summarizeSessions,sessionDetails,sessionMatrix,jetColor,temporalRuns,temporalColor};
