@@ -123,6 +123,7 @@ def build(sources, out, render_figures=True):
     hourly_totals = defaultdict(lambda: defaultdict(int))
     session_totals = defaultdict(lambda: defaultdict(int))
     samples = []
+    responses = []
     audit = {}
     seen = {}
     duplicates = 0
@@ -191,6 +192,20 @@ def build(sources, out, render_figures=True):
                 st['cost_usd'] = st.get('cost_usd', Decimal(0)) + Decimal(str(r['total_cost_usd']))
             duration = response_duration_ms(r)
             native_duration = r.get('native_response_ms', 0)
+            if grain == 'request' and r['output_tokens'] > 0 and 200 <= r['status_code'] < 300:
+                elapsed = duration
+                timing_source = ('duration_ms' if r.get('duration_ms') == duration else 'latency_ms') if duration else ''
+                if not elapsed and isinstance(native_duration, (int, float)) and math.isfinite(native_duration) and native_duration > 0:
+                    elapsed, timing_source = native_duration, 'native_log'
+                first_token = r.get('first_token_ms')
+                # Zero is the upstream default for unavailable first-token timing.
+                if not isinstance(first_token, (int, float)) or not math.isfinite(first_token) or first_token <= 0 or (duration and first_token > duration):
+                    first_token = None
+                responses.append(dict(date=r['date'], hour=r['local_datetime'][11:13],
+                                      host=host, app=app, model=model, output_tokens=r['output_tokens'],
+                                      duration_ms=elapsed or None, duration_source=timing_source,
+                                      tps=r['output_tokens'] * 1000 / elapsed if elapsed else None,
+                                      first_token_ms=first_token))
             if (grain == 'request' and r.get('session_key') and duration == 0 and
                     native_duration > 0 and math.isfinite(native_duration) and
                     r['output_tokens'] > 0 and 200 <= r['status_code'] < 300):
@@ -253,6 +268,10 @@ def build(sources, out, render_figures=True):
     summary['session_detail_available'] = True
     summary['caveats'].append('Per-session detail uses recorded session IDs, hashed before export, grouped per machine and application. Some sources use request-scoped IDs. Rollups and requests without usable IDs are excluded from session detail, not from daily totals.')
     write_csv(out / 'request_tps.csv', samples)
+    write_csv(out / 'response_speed.csv', responses)
+    summary['response_speed_available'] = True
+    summary['host_date'] = datetime.now().date().isoformat()
+    summary['host_timezone'] = datetime.now().astimezone().tzname()
     if render_figures:
         render(daily, samples, out, summary)
     (out / 'summary.json').write_text(json.dumps(summary, indent=2))

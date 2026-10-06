@@ -31,7 +31,7 @@ def main():
     binary_name = 'TokenScopeServer.exe' if args.platform == 'Windows' else 'TokenScopeServer'
     separator = ';' if args.platform == 'Windows' else ':'
     sources = ('update.py', 'collect.py', 'config.example.ini', 'web.html',
-               'web.js', 'session_usage.js', 'i18n.js', 'web.css')
+               'web.js', 'session_usage.js', 'response_speed.js', 'i18n.js', 'web.css')
     command = [
         sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--onedir',
         '--name', 'TokenScopeServer', '--distpath', str(dist_dir),

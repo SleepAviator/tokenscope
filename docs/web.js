@@ -159,6 +159,7 @@ function render(resetLimit=true){
   const rows=filtered(), available=availableModels(), selectedCount=[...available].filter(model=>selected.has(model)).length;
   $('selection').textContent=bilingual(`Models · ${selectedCount} of ${available.size}`,`模型 · 已选 ${selectedCount} / ${available.size}`);
   renderSessions(resetLimit);
+  renderResponseSpeed();
   $('tokens').textContent=compact(rows.reduce((a,r)=>a+r.tokens,0));
   $('tokens').title=rows.reduce((a,r)=>a+r.tokens,0).toLocaleString(uiLocale());
   $('cost').textContent=money(rows.reduce((a,r)=>a+Number(r.cost_usd),0));
@@ -289,9 +290,18 @@ new ResizeObserver(()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{if
 $('show-sessions').addEventListener('change',()=>renderSessions());
 try{$('native-tps').checked=localStorage.getItem('tokenscope-native-tps')!=='false';}catch(error){console.warn('TPS preference unavailable',error);}
 $('native-tps').addEventListener('change',()=>{
+  $('speed-native-tps').checked=$('native-tps').checked;
   try{localStorage.setItem('tokenscope-native-tps',String($('native-tps').checked));}catch(error){console.warn('TPS preference not saved',error);}
   renderSessions(false);
+  renderResponseSpeed();
 });
+// One preference controls native TPS estimates in both response and session views.
+$('speed-native-tps').checked=$('native-tps').checked;
+$('speed-native-tps').addEventListener('change',()=>{
+  $('native-tps').checked=$('speed-native-tps').checked;
+  $('native-tps').dispatchEvent(new Event('change'));
+});
+for(const id of ['speed-period','speed-metric'])$(id).addEventListener('change',()=>renderResponseSpeed());
 $('matrix-palette').addEventListener('change',()=>renderSessionMatrix(filtered(visibleSessionRows(data?.session_rows||[]))));
 $('session-sort').addEventListener('change',()=>renderSessions());
 $('session-more').onclick=()=>{sessionLimit+=50;renderSessions(false);};

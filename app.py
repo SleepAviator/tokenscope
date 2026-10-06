@@ -26,6 +26,7 @@ ROOT = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
 APP_SUPPORT = Path.home() / 'Library' / 'Application Support' / 'TokenScope'
 ASSETS = {'/': ('web.html', 'text/html'), '/web.js': ('web.js', 'text/javascript'),
           '/session_usage.js': ('session_usage.js', 'text/javascript'),
+          '/response_speed.js': ('response_speed.js', 'text/javascript'),
           '/i18n.js': ('i18n.js', 'text/javascript'),
           '/web.css': ('web.css', 'text/css')}
 
@@ -73,7 +74,18 @@ def public_data(folder):
                                         {k: int(row[k]) for k in ('requests', 'fresh_input_tokens', 'cache_read_tokens', 'cache_creation_tokens', 'output_tokens')} |
                                         {'tokens': int(row['total_tokens'])} |
                                         {k: float(row.get(k) or 0) for k in ('tps_count', 'tps_sum', 'tps_max', 'native_tps_count', 'native_tps_sum', 'native_tps_max')})
+    responses = None
+    if summary.get('response_speed_available'):
+        responses = []
+        path = folder / 'response_speed.csv'
+        if path.exists():
+            with path.open(encoding='utf-8', newline='') as stream:
+                for row in csv.DictReader(stream):
+                    responses.append({k: row[k] for k in ('date', 'hour', 'host', 'app', 'model', 'duration_source')} |
+                                     {'output_tokens': int(row['output_tokens'])} |
+                                     {k: float(row[k]) if row.get(k) else None for k in ('duration_ms', 'tps', 'first_token_ms')})
     return {'generated_at': summary['generated_at_utc'], 'rows': rows, 'hourly_rows': hourly_rows, 'session_rows': session_rows,
+            'response_rows': responses, 'host_date': summary.get('host_date'), 'host_timezone': summary.get('host_timezone'),
             'sources': {name: {'collected_at': a['collected_at'], 'timezone': a['timezone']}
                         for name, a in summary['sources'].items()},
             'caveats': [s for s in summary['caveats'] if not s.startswith('TPS')]}
@@ -127,6 +139,7 @@ def collect_worker(config, destination, fingerprint, workdir=None):
                 prior_hours = [r for r in old.get('hourly_rows', []) if r['host'] == name]
                 data['hourly_rows'].extend(prior_hours or [dict(r, hour='Unknown hour') for r in retained])
                 data['session_rows'].extend(r for r in (old.get('session_rows') or []) if r['host'] == name)
+                data['response_rows'].extend(r for r in (old.get('response_rows') or []) if r['host'] == name)
                 data['sources'][name] = dict(old['sources'][name])
             source = data['sources'].setdefault(name, {'collected_at': None, 'timezone': None})
             source['status'] = 'stale' if source['collected_at'] else 'unavailable'

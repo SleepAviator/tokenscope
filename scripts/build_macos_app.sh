@@ -25,7 +25,7 @@ python -m PyInstaller \
   --hidden-import update --hidden-import collect \
   --add-data "$PROJECT_ROOT/update.py:." --add-data "$PROJECT_ROOT/collect.py:." \
   --add-data "$PROJECT_ROOT/config.example.ini:." --add-data "$PROJECT_ROOT/web.html:." \
-  --add-data "$PROJECT_ROOT/web.js:." --add-data "$PROJECT_ROOT/session_usage.js:." \
+  --add-data "$PROJECT_ROOT/web.js:." --add-data "$PROJECT_ROOT/session_usage.js:." --add-data "$PROJECT_ROOT/response_speed.js:." \
   --add-data "$PROJECT_ROOT/i18n.js:." --add-data "$PROJECT_ROOT/web.css:." \
   app.py
 

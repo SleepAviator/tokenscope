@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Token usage</title><link rel="stylesheet" href="/web.css"><script defer src="/i18n.js"></script><script defer src="/session_usage.js"></script><script defer src="/web.js"></script></head>
+<title>Token usage</title><link rel="stylesheet" href="/web.css"><script defer src="/i18n.js"></script><script defer src="/session_usage.js"></script><script defer src="/response_speed.js"></script><script defer src="/web.js"></script></head>
 <body><main>
 <div class="language-switch"><label for="language">语言 / Language </label><select id="language"><option value="en">English</option><option value="zh-CN">简体中文</option></select></div>
 <header><div><h1>Token usage</h1><p id="freshness">Loading last successful collection…</p></div>
@@ -20,6 +20,34 @@
 <div id="chart-wrap"><svg id="chart" role="img" aria-label="Daily tokens by model with daily estimated cost line"></svg></div><p id="empty" hidden>No usage matches these filters.</p>
 <div id="tooltip" role="status" hidden></div></section>
 <section><h2 id="leaders-title">Monthly leading model</h2><p>Most tokens within the selected dates and models, including cache. Costs below belong to that model, not all models.</p><div id="leaders"></div></section>
+<section id="speed-panel" class="chart-card" aria-label="Per-response speed analysis">
+<h2>Per-response speed analysis</h2>
+<div class="actions">
+<label>Speed window <select id="speed-period"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="0">Overall</option></select></label>
+<label><input id="speed-native-tps" type="checkbox" checked>Include Codex native-log TPS estimates</label>
+</div>
+<p id="speed-scope"></p>
+<p>TPS = output tokens / response seconds, including first-token wait; averages and percentiles use individual responses, not session duration. First-token latency uses only recorded first-token timing, not total response time. Missing or zero timing stays unavailable. Only successful responses with output are included; historical rollups have no response timing.</p>
+<p>≈ includes native-log response-window estimates, not streaming-only generation speed. Disable the estimates above to use only recorded request timings.</p>
+<p id="speed-unavailable" hidden>Response timing detail is unavailable in this snapshot. Refresh with the updated collector.</p>
+<div id="speed-content">
+<p id="speed-coverage" role="status"></p>
+<div id="speed-summary" class="session-summary"></div>
+<h3>Period comparison</h3>
+<p>Last 7 and 30 days include today, in dashboard host time. All three rows also respect the date and model filters above.</p>
+<div class="session-scroll"><table class="detail-table"><thead><tr><th scope="col">Group</th><th scope="col">Responses</th><th scope="col">TPS samples</th><th scope="col">Mean TPS</th><th scope="col">Median TPS</th><th scope="col">Max TPS</th><th scope="col">First-token samples</th><th scope="col">Mean first token (s)</th><th scope="col">Median first token (s)</th><th scope="col">P95 first token (s)</th></tr></thead><tbody id="speed-window-body"></tbody></table></div>
+<div class="actions"><h3>Daily average response speed</h3><label>Heatmap metric <select id="speed-metric"><option value="tps">Average TPS</option><option value="latency">Average first-token latency</option></select></label></div>
+<div id="speed-legend"></div>
+<div id="speed-calendar" class="speed-heatmap" tabindex="0" role="region" aria-label="Daily response speed heatmap"></div>
+<h3>Weekday × hour of day</h3>
+<p>Averages over individual responses at each weekday and hour in dashboard host time. Gray tiles have no available timing for the selected metric.</p>
+<div id="speed-weekly" class="speed-heatmap" tabindex="0" role="region" aria-label="Weekday and hour response speed heatmap"></div>
+<p id="speed-hover" role="status">Hover or focus a tile for values and sample counts.</p>
+<details><summary>By model</summary><div class="session-scroll"><table class="detail-table"><thead><tr><th scope="col">Group</th><th scope="col">Responses</th><th scope="col">TPS samples</th><th scope="col">Mean TPS</th><th scope="col">Median TPS</th><th scope="col">Max TPS</th><th scope="col">First-token samples</th><th scope="col">Mean first token (s)</th><th scope="col">Median first token (s)</th><th scope="col">P95 first token (s)</th></tr></thead><tbody id="speed-model-body"></tbody></table></div></details>
+<details><summary>By weekday</summary><div class="session-scroll"><table class="detail-table"><thead><tr><th scope="col">Group</th><th scope="col">Responses</th><th scope="col">TPS samples</th><th scope="col">Mean TPS</th><th scope="col">Median TPS</th><th scope="col">Max TPS</th><th scope="col">First-token samples</th><th scope="col">Mean first token (s)</th><th scope="col">Median first token (s)</th><th scope="col">P95 first token (s)</th></tr></thead><tbody id="speed-weekday-body"></tbody></table></div></details>
+<details><summary>By hour of day</summary><div class="session-scroll"><table class="detail-table"><thead><tr><th scope="col">Group</th><th scope="col">Responses</th><th scope="col">TPS samples</th><th scope="col">Mean TPS</th><th scope="col">Median TPS</th><th scope="col">Max TPS</th><th scope="col">First-token samples</th><th scope="col">Mean first token (s)</th><th scope="col">Median first token (s)</th><th scope="col">P95 first token (s)</th></tr></thead><tbody id="speed-hour-body"></tbody></table></div></details>
+</div>
+</section>
 <section id="session-panel" class="chart-card" hidden aria-label="Per-session token usage">
 <h2>Per-session token usage</h2>
 <p>Only usage inside the selected dates and models. Conversation names are saved Codex / Claude Code titles. Identically named sessions remain separate; some source records have no matching saved title.</p>

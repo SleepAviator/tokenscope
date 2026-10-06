@@ -33,6 +33,7 @@ and which model leads each month—without opening a statistics page on every ma
 | **Focused exploration** | Narrow the date range and select one or several model names. |
 | **Session heatmap** | Explore session titles by date with adaptive jet colors for token usage. |
 | **Session drill-down** | Click a title for token components, requests, cost, and date/model breakdowns. Shared filters apply throughout. |
+| **Response speed** | Compare per-response TPS and measured first-token latency over the last 7 days, last 30 days, or all history. Explore daily calendar tiles, weekday/hour patterns, and model statistics with timing coverage counts. |
 | **One or many machines** | Collect locally or read remote statistics through your own private SSH configuration. |
 | **Desktop downloads** | Get standalone Windows x64, Linux x64, or macOS Apple silicon/Intel builds from GitHub Releases. |
 | **Refresh on your terms** | Choose 5 seconds to 10 minutes in the browser, aligned to the clock. |
@@ -113,6 +114,16 @@ the arithmetic mean of successful timed response rates; maximum is the fastest
 response average, not instantaneous streaming speed. Session idle gaps and input/cache
 tokens are excluded. Untimed, failed, and zero-output responses are excluded from TPS,
 not token accounting. Missing timing displays as unavailable, and date/model filters apply.
+
+The **Per-response speed analysis** panel compares the last 7 days, last 30 days,
+and all history, intersected with the global date/model filters. Windows include
+today in dashboard-host time. It shows response-level mean, median and maximum
+TPS; mean, median and P95 first-token latency; and sample counts for both metrics.
+Percentiles use linear interpolation between sorted individual measurements.
+First-token latency comes only from positive recorded `first_token_ms` values,
+never from total response duration. Daily calendar tiles and weekday/hour tiles
+can show either metric; gray means unavailable. The native-log estimate switch
+affects TPS only, not measured first-token latency.
 
 Requires Python 3.9+ and an existing CC-Switch database.
 

@@ -21,6 +21,15 @@ class SyntheticDemo(unittest.TestCase):
             tokens, cost = by_day_model[row['date'], row['host'], row['model']]
             self.assertEqual(tokens, row['tokens'])
             self.assertAlmostEqual(cost, float(row['cost_usd']))
+        self.assertEqual(len(data['response_rows']),sum(r['requests'] for r in data['rows']))
+        self.assertEqual(data['host_date'],'2026-03-31')
+        self.assertTrue(any(r['tps'] is None for r in data['response_rows']))
+        self.assertTrue(any(r['first_token_ms'] is None for r in data['response_rows']))
+        for row in data['response_rows']:
+            if row['tps'] is not None:
+                self.assertAlmostEqual(row['tps'],row['output_tokens']*1000/row['duration_ms'])
+            if row['first_token_ms'] is not None:
+                self.assertGreater(row['first_token_ms'],0)
 
     def test_monthly_leaders_change(self):
         data = synthetic_data()
