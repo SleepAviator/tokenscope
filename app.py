@@ -285,13 +285,16 @@ class Handler(BaseHTTPRequestHandler):
         if host == 'localhost':
             return True
         try:
-            return ipaddress.ip_address(host).is_private or ipaddress.ip_address(host).is_loopback
+            address = ipaddress.ip_address(host)
+            # Tailscale uses CGNAT, which ipaddress intentionally does not mark private.
+            return (address.is_private or address.is_loopback or
+                    (address.version == 4 and address in ipaddress.ip_network('100.64.0.0/10')))
         except (ValueError, TypeError):
             return False
 
     def do_GET(self):
         if not self.valid_host():
-            return self.respond(403, {'error': 'Use a LAN IP address or localhost'})
+            return self.respond(403, {'error': 'Use a LAN or Tailscale IP address, or localhost'})
         path = urlsplit(self.path).path
         if path in ASSETS:
             filename, kind = ASSETS[path]
@@ -355,7 +358,7 @@ def main():
     server.daemon_threads = True
     server.collector = collector
     print(f'Usage dashboard: http://127.0.0.1:{server.server_port}/', flush=True)
-    print(f'LAN: http://<this-machine-LAN-IP>:{server.server_port}/ (trusted LAN only; no authentication).', flush=True)
+    print(f'LAN / Tailscale: http://<this-machine-LAN-or-Tailscale-IP>:{server.server_port}/ (trusted networks only; no authentication).', flush=True)
     print('Ctrl+C stops the server and local collection/SSH processes.', flush=True)
     collector.thread.start()
     if args.open_browser:

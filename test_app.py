@@ -13,6 +13,15 @@ from app import Collector, Handler, interval_value, next_boundary
 
 
 class DashboardTests(unittest.TestCase):
+    def test_tailscale_host_range(self):
+        handler = object.__new__(Handler)
+        for host in ('localhost:8765', '192.168.1.2:8765', '100.64.0.1:8765', '100.127.255.254:8765'):
+            handler.headers = {'Host': host}
+            self.assertTrue(handler.valid_host(), host)
+        for host in ('100.63.255.254:8765', '100.128.0.1:8765', '8.8.8.8:8765', 'evil.example:8765'):
+            handler.headers = {'Host': host}
+            self.assertFalse(handler.valid_host(), host)
+
     def test_boundaries(self):
         now = datetime(2026, 9, 19, 12, 3, 42).timestamp()
         self.assertEqual(datetime.fromtimestamp(next_boundary(now, 300)).strftime('%H:%M:%S'), '12:05:00')
@@ -43,6 +52,13 @@ class DashboardTests(unittest.TestCase):
                 self.assertEqual(call('GET','/config.ini')[0],404)
                 self.assertEqual(call('GET','/../config.ini')[0],404)
                 self.assertEqual(call('GET','/api/status',headers={'Host':'evil.example'})[0],403)
+                self.assertEqual(call('GET','/api/status',headers={'Host':'100.64.0.1:8765'})[0],200)
+                tailscale_headers = {'Host':'100.64.0.1:8765', 'Origin':'http://100.64.0.1:8765'}
+                self.assertEqual(call('POST','/api/interval',{'seconds':300},tailscale_headers)[0],403)
+                tailscale_headers['X-Usage-CSRF'] = collector.csrf
+                self.assertEqual(call('POST','/api/interval',{'seconds':300},tailscale_headers)[0],200)
+                tailscale_headers['Origin'] = 'http://100.64.0.2:8765'
+                self.assertEqual(call('POST','/api/interval',{'seconds':300},tailscale_headers)[0],403)
                 self.assertEqual(call('POST','/api/interval',{'seconds':5})[0],403)
                 headers={'X-Usage-CSRF':collector.csrf}
                 self.assertEqual(call('POST','/api/interval',{'seconds':5},headers)[0],200)
