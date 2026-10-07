@@ -2,6 +2,7 @@
 // UI copy only: never translate model names, source names, or conversation titles.
 const ZH = {
   "Token usage": "Token 用量",
+  "Last dashboard refresh: ": "上次仪表板刷新：",
   "Loading last successful collection…": "正在加载上次成功采集的结果…",
   "Refresh every": "刷新间隔",
   "seconds": "秒",
