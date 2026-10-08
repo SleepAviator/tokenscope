@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private let meterTextView = MeterTextView()
     private var meterTimer: Timer?
     private var meterRequest: URLSessionDataTask?
+    private var meterEpoch: UInt = 0
     private var meterSnapshot: LiveSnapshot?
     private var meterError: String?
     private var meterUpdatedAt: Date?
@@ -247,15 +248,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     private func startMeterPolling() {
+        guard statusItem.isVisible, meterTimer == nil, !isStopping else { return }
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             self?.pollMeter()
         }
+        timer.tolerance = 0.1
         meterTimer = timer
         RunLoop.main.add(timer, forMode: .common)
         pollMeter()
     }
 
     private func stopMeterPolling() {
+        meterEpoch &+= 1
         meterTimer?.invalidate()
         meterTimer = nil
         meterRequest?.cancel()
@@ -264,6 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     private func pollMeter() {
         guard !isStopping, meterRequest == nil, server.isRunning else { return }
+        let requestEpoch = meterEpoch
         var request = URLRequest(url: liveURL, cachePolicy: .reloadIgnoringLocalCacheData)
         request.timeoutInterval = 2
         meterRequest = meterSession.dataTask(with: request) { [weak self] data, response, error in
@@ -284,7 +289,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 result = .failure(MeterError.invalidSnapshot)
             }
             DispatchQueue.main.async {
-                guard let self, !self.isStopping, self.meterTimer != nil else { return }
+                guard let self, !self.isStopping, self.meterTimer != nil,
+                      self.meterEpoch == requestEpoch else { return }
                 self.meterRequest = nil
                 switch result {
                 case .success(let snapshot):
@@ -427,6 +433,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let visible = sender.state == .on
         statusItem.isVisible = visible
         UserDefaults.standard.set(visible, forKey: meterVisibilityPreference)
+        if visible {
+            meterSnapshot = nil
+            meterError = nil
+            meterUpdatedAt = nil
+            updateMeterTitle()
+            startMeterPolling()
+        } else {
+            stopMeterPolling()
+        }
     }
 
     @objc private func openDashboard() {
