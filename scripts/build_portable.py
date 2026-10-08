@@ -30,13 +30,16 @@ def main():
     dist_dir = build_root / 'dist'
     binary_name = 'TokenScopeServer.exe' if args.platform == 'Windows' else 'TokenScopeServer'
     separator = ';' if args.platform == 'Windows' else ':'
-    sources = ('update.py', 'collect.py', 'config.example.ini', 'web.html',
+    sources = ('update.py', 'collect.py', 'live_meter.py', 'live_probe.py', 'live_telemetry.py',
+               'THIRD_PARTY_NOTICES.md', 'config.example.ini', 'web.html',
                'web.js', 'session_usage.js', 'response_speed.js', 'i18n.js', 'web.css')
     command = [
         sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--onedir',
         '--name', 'TokenScopeServer', '--distpath', str(dist_dir),
         '--workpath', str(build_root / 'work'), '--specpath', str(build_root),
         '--hidden-import', 'update', '--hidden-import', 'collect',
+        '--hidden-import', 'live_meter', '--hidden-import', 'live_probe',
+        '--hidden-import', 'live_telemetry',
     ]
     for filename in sources:
         command.extend(('--add-data', f'{root / filename}{separator}.'))
@@ -51,6 +54,7 @@ def main():
     package_root.mkdir()
     shutil.copytree(dist_dir / 'TokenScopeServer', package_root / 'TokenScopeServer')
     shutil.copy2(root / 'config.example.ini', package_root / 'config.example.ini')
+    shutil.copy2(root / 'THIRD_PARTY_NOTICES.md', package_root / 'THIRD_PARTY_NOTICES.md')
 
     if args.platform == 'Windows':
         shutil.copy2(root / 'windows' / 'launch-tokenscope.bat', package_root)

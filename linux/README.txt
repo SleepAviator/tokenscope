@@ -11,8 +11,8 @@ active collection.
 Edit your private machine settings at:
   ${XDG_CONFIG_HOME:-~/.config}/tokenscope/config.ini
 
-The refresh cache is stored at:
-  ${XDG_CACHE_HOME:-~/.cache}/tokenscope/web.json
+Dashboard snapshots stay in RAM and are cleared when TokenScope stops.
+Refreshes create no cache files or usage exports; source inputs are read-only.
 
 By default, the dashboard is available to devices on your trusted LAN and has no
 login or TLS. Do not expose it to the public Internet.

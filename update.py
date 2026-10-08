@@ -117,8 +117,8 @@ def response_duration_ms(row):
     return 0
 
 
-def build(sources, out, render_figures=True):
-    out.mkdir(parents=True, exist_ok=True)
+def aggregate(sources):
+    """Calculate dashboard and export records in memory, without filesystem I/O."""
     totals = defaultdict(lambda: defaultdict(int))
     hourly_totals = defaultdict(lambda: defaultdict(int))
     session_totals = defaultdict(lambda: defaultdict(int))
@@ -249,29 +249,40 @@ def build(sources, out, render_figures=True):
         for app in sorted({r['app'] for r in daily if r['host'] == host}):
             selected = [r for r in daily if r['host'] == host and r['app'] == app]
             summary['by_host_app'].append(dict(host=host, app=app, tokens=sum(r['total_tokens'] for r in selected), requests=sum(r['requests'] for r in selected), start=min(r['date'] for r in selected), end=max(r['date'] for r in selected)))
-    write_csv(out / 'daily_usage.csv', daily)
     hourly = []
     for (date, hour, host, app, provider, model, grain), t in sorted(hourly_totals.items()):
         item = dict(date=date, hour=hour, host=host, app=app, provider=provider, model=model, grain=grain, **t)
         item['total_tokens'] = sum(t[k] for k in ('fresh_input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_creation_tokens'))
         item['cost_usd'] = str(item['cost_usd'])
         hourly.append(item)
-    write_csv(out / 'hourly_usage.csv', hourly)
     session_daily = []
     for (date, host, app, session_key, model), st in sorted(session_totals.items()):
         item = dict(date=date, host=host, app=app, session_key=session_key, model=model, **st)
-        item['hours'] = json.dumps(item.get('hours', {}), sort_keys=True)
+        item['hours'] = item.get('hours', {})
         item['total_tokens'] = sum(st[k] for k in ('fresh_input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_creation_tokens'))
         item['cost_usd'] = str(item['cost_usd'])
         session_daily.append(item)
-    write_csv(out / 'session_daily_usage.csv', session_daily)
     summary['session_detail_available'] = True
     summary['caveats'].append('Per-session detail uses recorded session IDs, hashed before export, grouped per machine and application. Some sources use request-scoped IDs. Rollups and requests without usable IDs are excluded from session detail, not from daily totals.')
-    write_csv(out / 'request_tps.csv', samples)
-    write_csv(out / 'response_speed.csv', responses)
     summary['response_speed_available'] = True
     summary['host_date'] = datetime.now().date().isoformat()
     summary['host_timezone'] = datetime.now().astimezone().tzname()
+    return {'summary': summary, 'daily': daily, 'hourly': hourly,
+            'session_daily': session_daily, 'samples': samples, 'responses': responses}
+
+
+def build(sources, out, render_figures=True):
+    """Write the explicit CLI exports from the shared in-memory calculation."""
+    data = aggregate(sources)
+    summary, daily, samples = data['summary'], data['daily'], data['samples']
+    out.mkdir(parents=True, exist_ok=True)
+    write_csv(out / 'daily_usage.csv', daily)
+    write_csv(out / 'hourly_usage.csv', data['hourly'])
+    write_csv(out / 'session_daily_usage.csv',
+              [dict(row, hours=json.dumps(row['hours'], sort_keys=True))
+               for row in data['session_daily']])
+    write_csv(out / 'request_tps.csv', samples)
+    write_csv(out / 'response_speed.csv', data['responses'])
     if render_figures:
         render(daily, samples, out, summary)
     (out / 'summary.json').write_text(json.dumps(summary, indent=2))
@@ -283,9 +294,9 @@ def build(sources, out, render_figures=True):
         lines.append(f"| {r['model']} | {r['tokens']:,} | {r['requests']:,} | ${Decimal(r['cost_usd']):,.2f} |")
     lines += ['', f"Total recorded estimated cost: ${Decimal(summary['total_cost_usd']):,.2f} (not a bill)."]
     lines += ['', 'Total tokens: ' + f"{summary['total_tokens']:,}", '', '## Collection quality', '']
-    for host, a in audit.items():
+    for host, a in summary['sources'].items():
         lines.append(f"- {host}: collected {a['collected_at']}; latest request {a['latest_request_utc']}; {a['timed_requests']} timed requests; {a['zero_token_requests']} zero-token requests; HTTP statuses {a['request_status_counts']}.")
-    lines += ['', f'Cross-host identical request IDs removed: {duplicates}. Matching rollup rows retained for review: {matching_rollups}.', '', '## Coverage and definitions', ''] + ['- ' + s for s in summary['caveats']]
+    lines += ['', f"Cross-host identical request IDs removed: {summary['cross_host_duplicates_removed']}. Matching rollup rows retained for review: {summary['matching_cross_host_rollups_retained']}.", '', '## Coverage and definitions', ''] + ['- ' + s for s in summary['caveats']]
     (out / 'summary.md').write_text('\n'.join(lines) + '\n')
     return summary
 

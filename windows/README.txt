@@ -7,8 +7,8 @@ the console to stop TokenScope and its active collection.
 Edit your private machine settings at:
 %APPDATA%\TokenScope\config.ini
 
-The refresh cache is stored under:
-%LOCALAPPDATA%\TokenScope\output\web.json
+Dashboard snapshots stay in RAM and are cleared when TokenScope stops.
+Refreshes create no cache files or usage exports; source inputs are read-only.
 
 By default, the dashboard is available to devices on your trusted LAN and has no
 login or TLS. Do not expose it to the public Internet.

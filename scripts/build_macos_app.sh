@@ -22,8 +22,12 @@ APP_CONTENTS="$APP_DIR/Contents"
 python -m PyInstaller \
   --noconfirm --clean --onedir --name TokenScopeServer \
   --distpath "$DIST_DIR" --workpath "$BUILD_ROOT/work" --specpath "$BUILD_ROOT" \
-  --hidden-import update --hidden-import collect \
+  --hidden-import update --hidden-import collect --hidden-import live_meter --hidden-import live_probe \
+  --hidden-import live_telemetry \
   --add-data "$PROJECT_ROOT/update.py:." --add-data "$PROJECT_ROOT/collect.py:." \
+  --add-data "$PROJECT_ROOT/live_meter.py:." --add-data "$PROJECT_ROOT/live_probe.py:." \
+  --add-data "$PROJECT_ROOT/live_telemetry.py:." \
+  --add-data "$PROJECT_ROOT/THIRD_PARTY_NOTICES.md:." \
   --add-data "$PROJECT_ROOT/config.example.ini:." --add-data "$PROJECT_ROOT/web.html:." \
   --add-data "$PROJECT_ROOT/web.js:." --add-data "$PROJECT_ROOT/session_usage.js:." --add-data "$PROJECT_ROOT/response_speed.js:." \
   --add-data "$PROJECT_ROOT/i18n.js:." --add-data "$PROJECT_ROOT/web.css:." \
@@ -31,8 +35,11 @@ python -m PyInstaller \
 
 mkdir -p "$APP_CONTENTS/MacOS" "$APP_CONTENTS/Resources"
 cp macos/Info.plist "$APP_CONTENTS/Info.plist"
-cp -R "$DIST_DIR/TokenScopeServer" "$APP_CONTENTS/Resources/TokenScopeServer"
+cp macos/TokenScope.icns "$APP_CONTENTS/Resources/TokenScope.icns"
+mkdir -p "$APP_CONTENTS/Resources/TokenScopeServer"
+cp -R "$DIST_DIR/TokenScopeServer/." "$APP_CONTENTS/Resources/TokenScopeServer/"
 cp config.example.ini "$APP_CONTENTS/Resources/config.example.ini"
+cp THIRD_PARTY_NOTICES.md "$APP_CONTENTS/Resources/THIRD_PARTY_NOTICES.md"
 swiftc -O -framework AppKit -o "$APP_CONTENTS/MacOS/TokenScope" macos/launcher.swift
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $RELEASE_VERSION" "$APP_CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $RELEASE_VERSION" "$APP_CONTENTS/Info.plist"

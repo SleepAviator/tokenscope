@@ -32,6 +32,7 @@
 | **日期与模型筛选** | 缩小日期范围，选择一个或多个模型。 |
 | **会话热力图** | 纵轴为会话标题、横轴为日期，以自适应 jet 色阶显示 Token 用量。 |
 | **逐响应速度分析** | 比较最近7天、30天与全部历史的 TPS 和已记录的首 Token 延迟，查看每日方块热图、星期/小时规律及按模型统计，并显示可用计时样本数。 |
+| **macOS 菜单栏 TPS** | 汇总已配置机器和服务提供商的输出 TPS，并显示有贡献会话的平均 TPS 与覆盖缺口。 |
 | **会话详情** | 点击标题，展开 Token 构成、请求数、费用，以及按日期和模型划分的明细。 |
 | **本地与多机汇总** | 读取本机统计，或通过你自己的私有 SSH 配置读取远程机器。 |
 | **桌面版下载** | 从 GitHub Releases 下载 Windows x64、Linux x64 或 macOS Apple 芯片/Intel 独立版本。 |
@@ -69,15 +70,16 @@ python -m http.server 8877 --bind 127.0.0.1 --directory docs
 
 - **macOS：** Apple 芯片下载 **TokenScope-macOS-arm64**，Intel 下载
   **TokenScope-macOS-x86_64**。解压后将 `TokenScope.app` 移入“应用程序”并打开。
-  可用 **Machine settings…** 编辑私有配置；配置和缓存均保存在
-  `~/Library/Application Support/TokenScope/`。
+  应用同时启动看板和菜单栏计量器；关闭启动器窗口后仍继续运行，选择 **Stop and quit** 才会停止。
+  可用 **Machine settings…** 编辑私有配置，保存在
+  `~/Library/Application Support/TokenScope/`。看板快照和启动器的有界诊断日志仅保存在内存中。
 - **Windows x64：** 解压后双击 `launch-tokenscope.bat`。控制台会显示采集状态；
   在控制台按 Ctrl+C 停止。配置保存在 `%APPDATA%\TokenScope\config.ini`，
-  缓存位于 `%LOCALAPPDATA%\TokenScope\output\`。
+  看板快照仅保存在内存中。
 - **Linux x64：** 解压 `.tar.gz` 后在终端运行 `./launch-tokenscope.sh`，
   先进入解压得到的 `TokenScope-Linux-x86_64` 文件夹。按 Ctrl+C 停止。
-  配置和缓存使用 XDG 目录，默认分别为
-  `~/.config/tokenscope/` 和 `~/.cache/tokenscope/`。二进制在 Ubuntu 22.04 上构建，
+  配置使用 XDG 配置目录，默认为 `~/.config/tokenscope/`；看板快照仅保存在内存中。
+  二进制在 Ubuntu 22.04 上构建，
   需要兼容的 glibc。
 
 macOS 应用和 Windows 可执行文件均未签名。macOS 首次打开可能显示警告；
@@ -87,6 +89,79 @@ Windows SmartScreen 也可能对未签名程序发出警告。macOS Developer ID
 
 应用默认监听局域网，和 `python app.py` 一样没有登录验证或 TLS。仅在可信网络中使用；
 局域网其他设备可以查看看板并修改共享刷新间隔。
+
+### 菜单栏 TPS 计量器
+
+macOS 菜单栏以两行紧凑显示，上行为总速率 **`120 t/s`**，下行为平均速率 **`40 t/s`**，单位均为 Token/秒。
+前者为所有有贡献会话的输出 TPS 总和，后者为总和除以这些会话的数量。
+较窄的布局适合拥挤的菜单栏。每秒刷新一次，独立于看板的历史采集间隔。
+下拉菜单显示会话、机器/提供商速率、数据新鲜度与待补充或缺失的覆盖情况，并提供
+**Open dashboard**、**Machine settings…**、**Show launcher** 和 **Stop and quit**。
+启动器中的 **Show menu bar TPS meter** 可显示或隐藏计量器，并记住选择；
+从 Dock 重新打开 TokenScope 即可再次显示启动器。
+不会安装登录时自动启动的服务，也不会新增网页面板。
+
+计量器被动增量读取各个本地/SSH 数据源的 Codex、Claude 原生日志，以及 CC-Switch
+近期有计时的请求，不限制服务提供商。远程探针通过持久 SSH 连接只读运行，无需安装远程代理。
+路径与 SSH 设置仍保存在私有配置中；无法观察 Token 用量和计时的应用会明确标记为未覆盖。
+`codex_native_tps = false` 同时关闭该来源的实时 Codex 计时，并标记覆盖不完整；
+浏览器中的估算复选框只控制历史数据显示。
+实时 Codex 日志优先使用配置的 `codex_home`，其次使用该来源进程的 `CODEX_HOME`
+环境变量，最后默认使用 `~/.codex`。未显式设置 `codex_session_roots` 时，实时读取器
+使用该目录下的 `sessions` 和 `archived_sessions`；显式设置的分号分隔目录优先。
+历史采集保留现有日志路径默认值；历史日志位于其他位置时，请同时设置 `codex_session_roots`。
+
+可选的 **Codex 侧边聊天遥测试点** 在来源机器的 `127.0.0.1:4319/v1/logs`
+接收实时 HTTP JSON 日志。在该机器对应的私有 TokenScope `[source:...]` 配置段中设置
+`codex_otel_port = 4319`；省略或设为 `0` 即禁用。接收器与该来源的实时工作线程一同启动和停止，
+丢弃提示词与工具正文，只在 RAM 中保留计数、时间和会话身份，通过 SSH 传出的仍是数值快照。
+不会创建数据库、缓存或导出文件。将以下设置合并到该机器私有 Codex 配置的 `[otel]` 段：
+
+```toml
+[otel]
+exporter = { otlp-http = { endpoint = "http://127.0.0.1:4319/v1/logs", protocol = "json" } }
+log_user_prompt = false
+```
+
+在合适的时间重启 Codex，使导出设置生效；TokenScope 不会自动重启 Codex。
+请先完成或保存临时侧边聊天，因为重启可能导致这些聊天丢失。
+保持 trace exporter 原设置，不要为此试点启用 traces。服务提供商路由保持不变，也不安装登录服务。
+参见 [Codex 遥测配置](https://learn.chatgpt.com/docs/config-file/config-advanced)。
+
+已使用 Codex **0.160.1** 验证临时分支会话。该版本中，会话的 `codex.websocket_request`
+提供请求起点：来源 `event.timestamp` 减去已记录的 `duration_ms`。
+匹配的 `response.completed` 提供结束时间与生成输出 `output_token_count`；已包含在此总数中的
+推理 Token 只计一次。缺少会话身份或可用响应区间时，会明确显示覆盖缺口。
+其他 Codex 版本或传输方式可能缺少所需边界。批量导出可能延迟读数；
+在五秒窗口之后才到达的输出会被排除，并显示覆盖警告。
+
+将每个响应的输出均匀分配至记录的生成时间段，取与最近 **5 秒**重叠的部分，再除以 5，
+作为对应会话的 TPS。平均值只包括同一窗口内有贡献的会话，不计空闲会话。
+不计输入或缓存 Token；已包含在输出中的推理 Token 只计一次。
+原生日志边界会排除已知工具执行与空闲时间，但可能包含客户端调度和首 Token 等待。
+用量可能在生成后才上报，因此 **≈** 估算会滞后；若响应已经离开时间窗口，也可能无法显示。
+这不是服务器的瞬时生成速率。
+Codex 思考时，原生日志可能要等模型响应结束后才报告新的输出 Token 数。
+此时 `— t/s` 表示等待用量上报，不代表零速率；上报后会将已包含的推理 Token 计入输出速率。
+
+待上报用量、缺少计时和断开的数据源会显示覆盖缺口，不会当作零速率样本。
+Codex 桌面会话有活动却没有可读的原生 Token 用量时，也会标记覆盖不完整，无法将这些
+输出计入总速率或平均值。该缺口会保留，直到出现可读的原生活动或重启计量器。
+连续错过 3 次每秒心跳后移除断开来源的实时贡献。无法归属会话的输出可计入总速率，
+但此时会话平均值保持不可用。启动和重连不会回放保留的历史用量，也不会把看板缓存用作实时活动。
+客户端未提供会话 ID 时，CC-Switch 可能为每个请求生成新 ID；只有获得可靠的原生会话身份依据后，
+这些记录才会计入会话平均值。
+
+源码版或 Windows/Linux 服务器可使用相同采集器/API：
+
+```sh
+python app.py --live-meter --config config.ini
+```
+
+`GET /api/live` 仅允许通过回环连接访问，即使看板同时开放给局域网/tailnet。
+未传入 `--live-meter` 时返回禁用状态。原生菜单栏界面仅适用于 macOS。
+紧凑显示参考 [Token Meter](https://github.com/splunk/token-meter)，MIT 授权声明见
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 Codex 原生日志 TPS 估算默认开启。在单会话区域取消勾选
 **包含 Codex 原生日志 TPS 估算**即可关闭显示，选择保存在本浏览器。
@@ -128,7 +203,15 @@ python app.py --host 127.0.0.1 --port 8765 --interval 300 --config config.ini
 关闭浏览器不会停止采集，Ctrl+C 才会停止进程。日期和模型筛选仅影响当前浏览器。
 月度领先模型及费用随筛选重新计算，支持不完整月份及并列情况。
 
-最新成功结果会原子覆盖 `output/web.json`，失败时保留上一次结果，临时导出会被清理。
+看板数据及每台机器最新成功的统计快照仅保存在内存中；刷新不会生成临时 CSV 或看板缓存文件。
+macOS 启动器的服务器诊断日志也只在内存中保留最后 64 KiB。机器断开连接或采集失败时，
+同一次运行中保留该机器的上次结果，并明确标记为过期；其他机器继续刷新。
+没有成功快照的机器显示为不可用，合计覆盖不完整。重新连接后会替换快照并清除警告。
+重启会清空内存快照并重新采集，离线机器须等到重新连接后才有数据。
+已有缓存文件和导出不会被删除。
+可以显式传入 `--cache PATH` 在启动时只读加载已有快照，该文件不会被重写。
+采集器只读取现有 CC-Switch 数据库和原生日志；TokenScope 不创建数据库，也不修改这些数据源。
+需要手动导出时仍可运行 `update.py`。
 修改配置后请重启。每次刷新读取 CC-Switch 保留的全部统计，**不是增量采集**。
 需要新导入的会话统计时，请先让 CC-Switch 完成同步。
 
@@ -158,12 +241,13 @@ python app.py --host 127.0.0.1 --port 8765 --interval 300 --config config.ini
 
 找不到保存的标题时显示 **Title unavailable**，不会自动生成摘要或使用消息内容代替。
 可选的 `codex_home`、`claude_projects` 数据源设置用于指定元数据位置。
+`codex_home` 也用于决定上述实时 Codex 日志的默认位置。
 会话 ID 在导出前经过 SHA-256 哈希；哈希是化名标识，**不代表匿名**。
 
 **会话标题可能包含敏感信息。** 标题会进入本地输出，且局域网访问者可以看到。
 不要发布真实生成结果。公开演示仅使用虚构标题和模拟统计。
 没有可用会话 ID 的请求和历史汇总无法归入具体会话，但仍计入每日总量，并显示缺失明细的覆盖情况。
-旧缓存需要成功刷新一次后才包含新字段。静态导出也包含 `session_daily_usage.csv`。
+导入的旧快照需要成功刷新一次后才包含新字段。静态导出也包含 `session_daily_usage.csv`。
 
 ## 可选：添加远程机器
 
