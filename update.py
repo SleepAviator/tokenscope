@@ -176,7 +176,8 @@ def aggregate(sources):
                     t[field] += r[field]
                 t['cost_usd'] = t.get('cost_usd', Decimal(0)) + Decimal(str(r['total_cost_usd']))
             if grain == 'request' and r.get('session_key'):
-                st = session_totals[(r['date'], host, app, r['session_key'], model)]
+                st = session_totals[(r['date'], host, app, r['session_key'], model, r.get('project_key', ''))]
+                st['project_name'] = r.get('project_name', '')
                 st['requests'] += count
                 for field in ('tps_count', 'tps_sum', 'tps_max', 'native_tps_count', 'native_tps_sum', 'native_tps_max'):
                     st.setdefault(field, 0)
@@ -256,8 +257,8 @@ def aggregate(sources):
         item['cost_usd'] = str(item['cost_usd'])
         hourly.append(item)
     session_daily = []
-    for (date, host, app, session_key, model), st in sorted(session_totals.items()):
-        item = dict(date=date, host=host, app=app, session_key=session_key, model=model, **st)
+    for (date, host, app, session_key, model, project_key), st in sorted(session_totals.items()):
+        item = dict(date=date, host=host, app=app, session_key=session_key, model=model, project_key=project_key, **st)
         item['hours'] = item.get('hours', {})
         item['total_tokens'] = sum(st[k] for k in ('fresh_input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_creation_tokens'))
         item['cost_usd'] = str(item['cost_usd'])

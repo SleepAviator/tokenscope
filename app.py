@@ -77,7 +77,8 @@ def public_data(folder):
             with path.open(encoding='utf-8', newline='') as stream:
                 for row in csv.DictReader(stream):
                     session_rows.append({k: row[k] for k in ('date', 'host', 'app', 'session_key', 'model', 'cost_usd')} |
-                                        {'session_title': row.get('session_title', ''), 'hours': json.loads(row.get('hours') or '{}')} |
+                                        {'session_title': row.get('session_title', ''), 'hours': json.loads(row.get('hours') or '{}'),
+                                         'project_key': row.get('project_key', ''), 'project_name': row.get('project_name', '')} |
                                         {k: int(row[k]) for k in ('requests', 'fresh_input_tokens', 'cache_read_tokens', 'cache_creation_tokens', 'output_tokens')} |
                                         {'tokens': int(row['total_tokens'])} |
                                         {k: float(row.get(k) or 0) for k in ('tps_count', 'tps_sum', 'tps_max', 'native_tps_count', 'native_tps_sum', 'native_tps_max')})
@@ -106,7 +107,8 @@ def public_snapshot(result):
         return [{k: row[k] for k in fields} |
                 {'tokens': int(row['total_tokens']), 'requests': int(row['requests'])} for row in rows]
     sessions = [{k: row[k] for k in ('date', 'host', 'app', 'session_key', 'model', 'cost_usd')} |
-                {'session_title': row.get('session_title', ''), 'hours': row.get('hours', {})} |
+                {'session_title': row.get('session_title', ''), 'hours': row.get('hours', {}),
+                 'project_key': row.get('project_key', ''), 'project_name': row.get('project_name', '')} |
                 {k: int(row[k]) for k in ('requests', 'fresh_input_tokens', 'cache_read_tokens', 'cache_creation_tokens', 'output_tokens')} |
                 {'tokens': int(row['total_tokens'])} |
                 {k: float(row.get(k) or 0) for k in ('tps_count', 'tps_sum', 'tps_max', 'native_tps_count', 'native_tps_sum', 'native_tps_max')}

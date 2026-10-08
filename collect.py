@@ -12,10 +12,68 @@ _dll_handle = os.add_dll_directory(str(_dll_dir)) if os.name == 'nt' and _dll_di
 import sqlite3
 
 
+def cloud_project_path(path):
+    """Use a cloud-relative identity without exporting the account/root path."""
+    parts = path.parts
+    if '..' in parts:
+        return None
+    for index, part in enumerate(parts):
+        label = part.casefold()
+        provider = None
+        if label == 'dropbox' or (label.startswith('dropbox (') and label.endswith(')')) or label.startswith('dropbox-'):
+            provider = 'dropbox'
+        elif label in ('onedrive', 'onedrive personal') or label.startswith(('onedrive-', 'onedrive - ')):
+            provider = 'onedrive'
+        elif label in ('googledrive', 'google drive') or label.startswith('googledrive-'):
+            provider = 'google-drive'
+        elif label in ('icloud drive', 'iclouddrive') or (label == 'com~apple~clouddocs' and index and parts[index-1].casefold() == 'mobile documents'):
+            provider = 'icloud-drive'
+        elif label == 'box-box' or (label == 'box' and
+                (index == 1 or (index == 3 and parts[1].casefold() in ('users', 'home')) or
+                 (index and parts[index-1].casefold() == 'cloudstorage'))):
+            provider = 'box'
+        if provider:
+            relative = parts[index+1:]
+            if provider == 'google-drive' and relative and relative[0].casefold() == 'my drive':
+                relative = relative[1:]
+            return provider, list(relative)
+    # Google Drive for Windows also exposes a drive letter rooted at My Drive.
+    if isinstance(path, pathlib.PureWindowsPath) and len(parts) > 1 and parts[1].casefold() == 'my drive':
+        return 'google-drive', list(parts[2:])
+    return None
+
+
+def project_metadata(cwd):
+    """Expose a folder label and opaque identity, never the absolute path."""
+    if not isinstance(cwd, str) or not cwd.strip():
+        return None
+    windows = pathlib.PureWindowsPath(cwd)
+    path = windows if windows.drive else pathlib.PurePosixPath(cwd)
+    if not path.is_absolute():
+        return None
+    cloud = cloud_project_path(path)
+    name = path.name or 'Filesystem root'
+    if cloud:
+        normalized = json.dumps(cloud, separators=(',', ':'))
+        if not cloud[1]:
+            name = {'dropbox': 'Dropbox', 'onedrive': 'OneDrive', 'google-drive': 'Google Drive',
+                    'icloud-drive': 'iCloud Drive', 'box': 'Box'}[cloud[0]]
+    else:
+        normalized = str(path).replace('\\', '/')
+        if windows.drive:
+            normalized = normalized.casefold()
+    return (hashlib.sha256(normalized.encode()).hexdigest(), name)
+
+
 def enrich_session_titles(rows, codex_home='~/.codex', claude_projects='~/.claude/projects', desktop_roots=None):
     """Read saved conversation names only; never synthesize titles from messages."""
     wanted = {r.get('session_id') for r in rows if r.get('session_id')}
     codex_titles, claude_titles = {}, {}
+    projects = {'codex': {}, 'claude': {}}
+    def remember(app, sid, cwd):
+        metadata = project_metadata(cwd)
+        if sid and metadata:
+            projects[app].setdefault(sid, {})[metadata[0]] = metadata[1]
     home = pathlib.Path(codex_home).expanduser()
     index = home / 'session_index.jsonl'
     if index.exists():
@@ -33,6 +91,12 @@ def enrich_session_titles(rows, codex_home='~/.codex', claude_projects='~/.claud
         db = sqlite3.connect(databases[0].resolve().as_uri() + '?mode=ro', uri=True, timeout=30)
         try:
             columns = {r[1] for r in db.execute('PRAGMA table_info(threads)')}
+            if {'id', 'cwd'} <= columns:
+                ids = sorted(wanted)
+                for offset in range(0, len(ids), 500):
+                    chunk = ids[offset:offset+500]
+                    for sid, cwd in db.execute('SELECT id,cwd FROM threads WHERE id IN (' + ','.join('?' for _ in chunk) + ')', chunk):
+                        remember('codex', sid, cwd)
             # In desktop state, title can be the original prompt; name is the UI title.
             if {'id', 'name'} <= columns:
                 ids = sorted(wanted)
@@ -67,6 +131,7 @@ def enrich_session_titles(rows, codex_home='~/.codex', claude_projects='~/.claud
                 if not line.strip():
                     continue
                 entry = json.loads(line)
+                remember('claude', entry.get('sessionId'), entry.get('cwd'))
                 if entry.get('type') == 'assistant' and isinstance(entry.get('message'), dict):
                     mid = entry['message'].get('id')
                     sid = entry.get('sessionId')
@@ -93,6 +158,7 @@ def enrich_session_titles(rows, codex_home='~/.codex', claude_projects='~/.claud
             if not isinstance(entry, dict):
                 continue
             sid, title = entry.get('cliSessionId'), entry.get('title')
+            remember('claude', sid, entry.get('originCwd') or entry.get('cwd'))
             if isinstance(sid, str) and isinstance(title, str) and title.strip():
                 desktop_titles.setdefault(sid, set()).add(title)
     for sid, titles in desktop_titles.items():
@@ -122,6 +188,15 @@ def enrich_session_titles(rows, codex_home='~/.codex', claude_projects='~/.claud
                 linked += 1
     matched = 0
     for row in rows:
+        app = 'codex' if row['app_type'] == 'codex' else 'claude' if row['app_type'] in ('claude', 'claude-desktop') else None
+        candidates = message_sessions.get(row.get('request_id'), set()) if app == 'claude' else set()
+        candidates = candidates or {row.get('session_id')}
+        matches = [projects.get(app, {}).get(sid, {}) for sid in candidates]
+        keys = {next(iter(match)) for match in matches if len(match) == 1}
+        # Exact ID matches only; every candidate must agree on one folder.
+        if matches and all(len(match) == 1 for match in matches) and len(keys) == 1:
+            key = next(iter(keys))
+            row['project_key'], row['project_name'] = key, matches[0][key]
         titles = codex_titles if row['app_type'] == 'codex' else claude_titles if row['app_type'] in ('claude', 'claude-desktop') else {}
         title = message_titles.get(id(row)) or titles.get(row.get('session_id'))
         if title:
@@ -136,6 +211,7 @@ def enrich_session_providers(rows, roots):
     """Join Codex headers by session ID; never export session text or paths."""
     wanted = {r.get('session_id') for r in rows if r.get('data_source') == 'codex_session'} - {None, ''}
     providers = {}
+    projects = {}
     inspected = 0
     for root in roots:
         for path in pathlib.Path(root).expanduser().glob('**/*.jsonl'):
@@ -152,6 +228,9 @@ def enrich_session_providers(rows, roots):
             if header.get('type') != 'session_meta' or meta.get('id') not in wanted:
                 continue
             provider = meta.get('model_provider')
+            metadata = project_metadata(meta.get('cwd'))
+            if metadata:
+                projects.setdefault(meta['id'], set()).add(metadata)
             if provider:
                 sid = meta['id']
                 if sid in providers and providers[sid] != provider:
@@ -159,6 +238,16 @@ def enrich_session_providers(rows, roots):
                 providers[sid] = provider
     matched = 0
     for row in rows:
+        matches = projects.get(row.get('session_id'), set())
+        if matches:
+            existing = (row.get('project_key'), row.get('project_name', ''))
+            if existing[0]:
+                matches = matches | {existing}
+            if len(matches) == 1:
+                row['project_key'], row['project_name'] = next(iter(matches))
+            else:
+                row.pop('project_key', None)
+                row.pop('project_name', None)
         provider = providers.get(row.get('session_id')) if row.get('data_source') == 'codex_session' else None
         if provider:
             row['session_provider'] = provider

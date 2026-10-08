@@ -72,6 +72,36 @@ function timeLabels(resolution) {
 function timeLabel(key,short=false) {
   return short?key.replace(/^\d{4}-/,'').replace('T',' '):key.replace('T',' ');
 }
+// Build the additive stack smallest-to-largest, then paint back-to-front.
+function usageBarSegments(models) {
+  const entries=[...models];
+  if(entries.some(([,tokens])=>!Number.isFinite(tokens)||tokens<0))throw new RangeError('Model token counts must be finite and non-negative');
+  let base=0;
+  return entries.filter(([,tokens])=>tokens>0).sort((a,b)=>a[1]-b[1]||a[0].localeCompare(b[0]))
+    .map(([name,tokens])=>{const part={name,tokens,base,end:base+tokens};base+=tokens;return part;}).reverse();
+}
+function wrapSnapshotText(text,width,measure) {
+  const lines=[];let line='';
+  for(const character of text){
+    if(line&&measure(line+character)>width){lines.push(line);line='';}
+    line+=character;
+  }
+  if(line)lines.push(line);
+  return lines;
+}
+function snapshotLegendLayout(models,width,measure=text=>Array.from(text).length*7) {
+  const margin=24,gap=24,inner=width-2*margin;
+  const desired=Math.min(inner,Math.max(200,Math.min(380,Math.max(0,...models.map(measure))+24)));
+  const columns=Math.max(1,Math.floor((inner+gap)/(desired+gap)));
+  const columnWidth=(inner-gap*(columns-1))/columns;
+  const entries=[];let y=0;
+  for(let offset=0;offset<models.length;offset+=columns){
+    const row=models.slice(offset,offset+columns).map(name=>({name,lines:wrapSnapshotText(name,columnWidth-24,measure)}));
+    row.forEach((entry,index)=>entries.push({...entry,x:margin+index*(columnWidth+gap),y}));
+    y+=Math.max(...row.map(entry=>entry.lines.length))*18+12;
+  }
+  return {entries,height:y};
+}
 function chartBuckets(rows, hourly=false) {
   const buckets=new Map();
   const resolution=typeof hourly==='object'?hourly:null;
@@ -131,6 +161,34 @@ function summarizeSessions(rows) {
     mergeResponseRates(s,r);
   }
   return [...groups.values()].map(s=>({...s,models:[...s.models].sort()}));
+}
+function projectIdentity(row) {
+  return JSON.stringify([row.project_name||'',row.project_key]);
+}
+function summarizeProjects(rows, dimension=null) {
+  const groups=new Map(),fields=['tokens','requests','fresh_input_tokens','cache_read_tokens','cache_creation_tokens','output_tokens'];
+  for(const row of rows){
+    if(!row.project_key)continue;
+    const key=dimension?row[dimension]:projectIdentity(row);
+    if(!groups.has(key))groups.set(key,{key,value:key,title:row.project_name||'',host:row.host,
+      project_key:row.project_key,first:row.date,last:row.date,hosts:new Set(),apps:new Set(),models:new Set(),sessionKeys:new Set(),
+      cost:0,...Object.fromEntries(fields.map(field=>[field,0]))});
+    const group=groups.get(key);
+    group.first=group.first<row.date?group.first:row.date;
+    group.last=group.last>row.date?group.last:row.date;
+    group.hosts.add(row.host);group.apps.add(row.app);group.models.add(row.model);group.sessionKeys.add(sessionIdentity(row));
+    group.cost+=Number(row.cost_usd);
+    for(const field of fields)group[field]+=row[field];
+    mergeResponseRates(group,row);
+  }
+  return [...groups.values()].map(group=>({...group,hosts:[...group.hosts].sort(),host:[...group.hosts].sort().join(', '),apps:[...group.apps].sort(),models:[...group.models].sort(),sessions:group.sessionKeys.size}));
+}
+function projectDetails(rows,key){
+  const selected=rows.filter(row=>row.project_key&&projectIdentity(row)===key);
+  return {project:summarizeProjects(selected)[0]||null,
+    daily:summarizeProjects(selected,'date').sort((a,b)=>a.value.localeCompare(b.value)),
+    models:summarizeProjects(selected,'model').sort((a,b)=>b.tokens-a.tokens),
+    sessions:summarizeSessions(selected).sort((a,b)=>b.tokens-a.tokens)};
 }
 function sessionDetails(rows, key) {
   const selected = rows.filter(r => sessionIdentity(r) === key);
@@ -219,4 +277,4 @@ function temporalRuns(dates, days) {
   });
   return runs;
 }
-if (typeof module !== 'undefined') module.exports = {timeResolution,timeSlot,timeLabels,timeLabel,chartBuckets,withNativeTPS,availableUsageModels,visibleSessionRows,leaderPeriod,modelsInDateRange,matchingModels,filterUsageRows,sessionIdentity,summarizeSessions,sessionDetails,sessionMatrix,jetColor,temporalRuns,temporalColor};
+if (typeof module !== 'undefined') module.exports = {usageBarSegments,wrapSnapshotText,snapshotLegendLayout,projectIdentity,summarizeProjects,projectDetails,timeResolution,timeSlot,timeLabels,timeLabel,chartBuckets,withNativeTPS,availableUsageModels,visibleSessionRows,leaderPeriod,modelsInDateRange,matchingModels,filterUsageRows,sessionIdentity,summarizeSessions,sessionDetails,sessionMatrix,jetColor,temporalRuns,temporalColor};

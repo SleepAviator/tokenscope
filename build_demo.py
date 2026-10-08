@@ -48,6 +48,8 @@ def synthetic_data():
             # Some days deliberately lack session detail to demonstrate coverage.
             if day % 11:
                 session_rows.append(dict(rows[-1], session_key=hashlib.sha256(f'fictional-session-{day // 10}'.encode()).hexdigest(),
+                                         project_key=hashlib.sha256(f'fictional-project-{day // 10 % 3}'.encode()).hexdigest(),
+                                         project_name=('Demo dashboard','Fictional API','Demo dataset')[day // 10 % 3],
                                          session_title=('Build a sample dashboard', 'Review a fictional API', 'Explore a demo dataset')[day // 10 % 3] + f' · iteration {day // 10 + 1}',
                                          hours={'09':tokens//3,'14':tokens-tokens//3},
                                          tps_count=rows[-1]['requests'],tps_sum=rows[-1]['requests']*(20+index*15+day%8),tps_max=30+index*15+day%8,
@@ -77,8 +79,10 @@ def build():
     page = page.replace('src="/session_usage.js"', 'src="session_usage.js"')
     page = page.replace('src="/response_speed.js"', 'src="response_speed.js"')
     page = page.replace('src="/i18n.js"', 'src="i18n.js"')
+    # A changed reveal must replace cached CSS, including in the in-app browser.
+    demo_style_version = hashlib.sha256((destination / 'demo.css').read_bytes()).hexdigest()[:12]
     page = page.replace('<script defer src="/web.js"></script>',
-                        '<link rel="stylesheet" href="demo.css"><script defer src="demo-data.js"></script><script defer src="web.js"></script>')
+                        f'<link rel="stylesheet" href="demo.css?v={demo_style_version}"><script defer src="demo-data.js"></script><script defer src="web.js"></script>')
     page = page.replace('<body><main>', '<body><main><nav class="demo-nav"><a href="https://github.com/Crear12/tokenscope">◈ TokenScope</a><span class="demo-badge">SYNTHETIC DEMO</span><a href="https://github.com/Crear12/tokenscope#quick-start">Get the code ↗</a></nav>')
     page = page.replace('<h1>Token usage</h1>', '<p class="eyebrow">YOUR MODELS. ONE CLEAR VIEW.</p><h1>Tokens tell a story.<br>See the whole picture.</h1>')
     page = page.replace('id="show-sessions" type="checkbox"', 'id="show-sessions" type="checkbox" checked')

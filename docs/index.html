@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TokenScope · Synthetic Demo</title><link rel="stylesheet" href="web.css"><script defer src="i18n.js"></script><script defer src="session_usage.js"></script><script defer src="response_speed.js"></script><link rel="stylesheet" href="demo.css"><script defer src="demo-data.js"></script><script defer src="web.js"></script></head>
+<title>TokenScope · Synthetic Demo</title><link rel="stylesheet" href="web.css"><script defer src="i18n.js"></script><script defer src="session_usage.js"></script><script defer src="response_speed.js"></script><link rel="stylesheet" href="demo.css?v=bd2df6cc42b6"><script defer src="demo-data.js"></script><script defer src="web.js"></script></head>
 <body><main><nav class="demo-nav"><a href="https://github.com/Crear12/tokenscope">◈ TokenScope</a><span class="demo-badge">SYNTHETIC DEMO</span><a href="https://github.com/Crear12/tokenscope#quick-start">Get the code ↗</a></nav>
 <div class="language-switch"><label for="language">语言 / Language </label><select id="language"><option value="en">English</option><option value="zh-CN">简体中文</option></select></div>
 <header><div><p class="eyebrow">YOUR MODELS. ONE CLEAR VIEW.</p><h1>Tokens tell a story.<br>See the whole picture.</h1><p id="freshness">Loading last successful collection…</p></div>
@@ -11,12 +11,13 @@
 <label>From <input id="from" type="date"></label><label>Through <input id="through" type="date"></label>
 <button id="today">Today</button><button id="past-seven-days">Past 7 Days</button><button id="reset">All dates & models</button>
 <label><input id="show-sessions" type="checkbox" checked aria-controls="session-panel">Show per-session usage</label>
+<label><input id="show-projects" type="checkbox" checked aria-controls="project-panel">Show per-project usage</label>
 <details id="model-filter"><summary id="selection">Models · all</summary>
 <input id="search" type="search" placeholder="Find model names" aria-label="Find model names">
 <div class="actions"><button id="all">Select all</button><button id="none">Clear selection</button></div><div id="models"></div></details>
 </section>
 <section class="metrics" aria-label="Filtered totals"><div><span>Total tokens</span><strong id="tokens">—</strong></div><div><span>Recorded estimated cost</span><strong id="cost">—</strong></div><div><span>Requests</span><strong id="requests">—</strong></div><div><span>Selected models</span><strong id="count">—</strong></div></section>
-<section class="chart-card"><h2 id="usage-chart-title">Daily tokens and cost</h2><p class="key">Colored bars: tokens by model, left axis. <b id="usage-cost-key">Black line: daily total estimated USD, right axis.</b></p>
+<section class="chart-card"><div class="usage-heading"><h2 id="usage-chart-title">Daily tokens and cost</h2><button id="snapshot" type="button" disabled>Download snapshot</button></div><p id="snapshot-status" role="status" hidden></p><p class="key">Colored bars: tokens by model, left axis. <b id="usage-cost-key">Black line: daily total estimated USD, right axis.</b></p>
 <div id="chart-wrap"><svg id="chart" role="img" aria-label="Daily tokens by model with daily estimated cost line"></svg></div><p id="empty" hidden>No usage matches these filters.</p>
 <div id="tooltip" role="status" hidden></div></section>
 <section><h2 id="leaders-title">Monthly leading model</h2><p>Most tokens within the selected dates and models, including cache. Costs below belong to that model, not all models.</p><div id="leaders"></div></section>
@@ -47,6 +48,23 @@
 <details><summary>By weekday</summary><div class="session-scroll"><table class="detail-table"><thead><tr><th scope="col">Group</th><th scope="col">Responses</th><th scope="col">TPS samples</th><th scope="col">Mean TPS</th><th scope="col">Median TPS</th><th scope="col">Max TPS</th><th scope="col">First-token samples</th><th scope="col">Mean first token (s)</th><th scope="col">Median first token (s)</th><th scope="col">P95 first token (s)</th></tr></thead><tbody id="speed-weekday-body"></tbody></table></div></details>
 <details><summary>By hour of day</summary><div class="session-scroll"><table class="detail-table"><thead><tr><th scope="col">Group</th><th scope="col">Responses</th><th scope="col">TPS samples</th><th scope="col">Mean TPS</th><th scope="col">Median TPS</th><th scope="col">Max TPS</th><th scope="col">First-token samples</th><th scope="col">Mean first token (s)</th><th scope="col">Median first token (s)</th><th scope="col">P95 first token (s)</th></tr></thead><tbody id="speed-hour-body"></tbody></table></div></details>
 </div>
+</section>
+<section id="project-panel" class="chart-card" aria-label="Per-project usage">
+<h2>Per-project usage</h2>
+<p>Projects with the same name and path are combined across machines and apps. Recognized cloud-drive roots use cloud-relative paths; different folders or cloud services remain separate. Date and model filters apply. Missing or conflicting metadata stays unassigned.</p>
+<p id="project-coverage" role="status"></p>
+<p>TPS uses the same response-time calculation and native-log estimate switch as per-session analysis; untimed responses are excluded.</p>
+<div id="project-ranking" aria-label="Top projects by tokens"></div>
+<div class="session-scroll" tabindex="0" role="region" aria-label="Project details table">
+<table class="detail-table"><thead><tr><th scope="col">Project</th><th scope="col">Machine / app</th><th scope="col">Models</th><th scope="col">Fresh input</th><th scope="col">Cache read</th><th scope="col">Cache write</th><th scope="col">Output</th><th scope="col">Total tokens</th><th scope="col">Requests</th><th scope="col">Sessions</th><th scope="col">Est. USD</th><th scope="col">Avg TPS</th><th scope="col">Max TPS</th><th scope="col">Timed responses</th></tr></thead><tbody id="project-body"></tbody></table></div>
+<p id="project-empty" hidden>No project detail matches these filters. Refresh collection to load saved project metadata.</p>
+<section id="project-detail" class="session-detail" hidden aria-live="polite">
+<div class="session-detail-heading"><h3 id="project-detail-title">Project detail</h3><button id="project-detail-close" type="button">Close detail</button></div>
+<p id="project-detail-meta"></p>
+<h4>By date</h4><div class="session-scroll"><table class="detail-table"><thead><tr><th scope="col">Date</th><th scope="col">Fresh input</th><th scope="col">Cache read</th><th scope="col">Cache write</th><th scope="col">Output</th><th scope="col">Total tokens</th><th scope="col">Requests</th><th scope="col">Sessions</th><th scope="col">Est. USD</th><th scope="col">Avg TPS</th><th scope="col">Max TPS</th><th scope="col">Timed responses</th></tr></thead><tbody id="project-date-body"></tbody></table></div>
+<h4>By model</h4><div class="session-scroll"><table class="detail-table"><thead><tr><th scope="col">Model</th><th scope="col">Fresh input</th><th scope="col">Cache read</th><th scope="col">Cache write</th><th scope="col">Output</th><th scope="col">Total tokens</th><th scope="col">Requests</th><th scope="col">Sessions</th><th scope="col">Est. USD</th><th scope="col">Avg TPS</th><th scope="col">Max TPS</th><th scope="col">Timed responses</th></tr></thead><tbody id="project-model-body"></tbody></table></div>
+<h4>Sessions</h4><div class="session-scroll"><table class="detail-table"><thead><tr><th scope="col">Conversation</th><th scope="col">Machine / app</th><th scope="col">Total tokens</th><th scope="col">Requests</th><th scope="col">Est. USD</th><th scope="col">Avg TPS</th><th scope="col">Max TPS</th><th scope="col">Timed responses</th></tr></thead><tbody id="project-session-body"></tbody></table></div>
+</section>
 </section>
 <section id="session-panel" class="chart-card" hidden aria-label="Per-session token usage">
 <h2>Per-session token usage</h2>

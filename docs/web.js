@@ -14,7 +14,59 @@ function filtered(rows=data?.rows||[]){
   const available=availableModels();
   return filterUsageRows(rows,$('from').value,$('through').value,new Set([...selected].filter(model=>available.has(model))));
 }
-let sessionLimit=50, activeSessionKey=null;
+let sessionLimit=50, activeSessionKey=null, activeProjectKey=null, snapshotPending=false;
+function projectValues(group){
+  return [...['fresh_input_tokens','cache_read_tokens','cache_creation_tokens','output_tokens','tokens','requests','sessions'].map(field=>group[field].toLocaleString(uiLocale())),money(group.cost),...responseRateCells(group)];
+}
+function renderProjects(){
+  $('project-panel').hidden=!$('show-projects').checked;
+  if($('project-panel').hidden)return;
+  const rows=withNativeTPS(filtered(visibleSessionRows(data?.session_rows||[])),$('native-tps').checked);
+  const groups=summarizeProjects(rows).sort((a,b)=>b.tokens-a.tokens||a.key.localeCompare(b.key));
+  const assigned=groups.reduce((sum,group)=>sum+group.tokens,0),total=filtered().reduce((sum,row)=>sum+row.tokens,0);
+  $('project-coverage').textContent=bilingual(
+    `${groups.length.toLocaleString(uiLocale())} projects · ${assigned.toLocaleString(uiLocale())} assigned tokens · ${money(groups.reduce((sum,group)=>sum+group.cost,0))} est. · ${Math.max(0,total-assigned).toLocaleString(uiLocale())} tokens unassigned (including historical rollups).`,
+    `${groups.length.toLocaleString(uiLocale())} 个项目 · 已归属 ${assigned.toLocaleString(uiLocale())} Token · ${money(groups.reduce((sum,group)=>sum+group.cost,0))}（预估）· ${Math.max(0,total-assigned).toLocaleString(uiLocale())} Token 未归属项目（含历史汇总）。`);
+  $('project-empty').hidden=groups.length>0;
+  const name=group=>{
+    const duplicate=groups.some(other=>other.key!==group.key&&other.title===group.title);
+    return (group.title||t('Project unavailable'))+(duplicate?' · '+group.project_key.slice(0,8):'');
+  };
+  const open=key=>{activeProjectKey=key;renderProjects();$('project-detail').scrollIntoView({block:'nearest'});};
+  $('project-ranking').replaceChildren();$('project-body').replaceChildren();
+  const max=groups[0]?.tokens||1;
+  for(const group of groups.slice(0,10)){
+    const button=element('button',undefined,'project-rank');button.type='button';
+    button.append(element('span',name(group)+' · '+group.host),element('strong',compact(group.tokens)+' tokens'));
+    const bar=element('span',undefined,'project-bar');bar.style.width=100*group.tokens/max+'%';button.append(bar);
+    button.onclick=()=>open(group.key);$('project-ranking').append(button);
+  }
+  for(const group of groups){
+    const tr=element('tr'),cell=element('td'),button=element('button',name(group),'session-open');
+    button.type='button';button.setAttribute('aria-expanded',String(activeProjectKey===group.key));button.onclick=()=>open(group.key);
+    cell.append(button);tr.append(cell);
+    for(const value of [group.host+' / '+group.apps.join(', '),group.models.join(', '),...projectValues(group)])tr.append(element('td',value));
+    $('project-body').append(tr);
+  }
+  const detail=projectDetails(rows,activeProjectKey);
+  $('project-detail').hidden=!detail.project;
+  if(!detail.project){activeProjectKey=null;return;}
+  const group=detail.project;
+  $('project-detail-title').textContent=name(group);
+  $('project-detail-meta').textContent=`${group.host} / ${group.apps.join(', ')} · ${group.first} → ${group.last} · ${group.sessions} ${t('Sessions')} · ${compact(group.tokens)} tokens · ${money(group.cost)}`;
+  for(const [id,items] of [['project-date-body',detail.daily],['project-model-body',detail.models]]){
+    $(id).replaceChildren();
+    for(const item of items)appendCells($(id),[item.value,...projectValues(item)]);
+  }
+  $('project-session-body').replaceChildren();
+  for(const session of detail.sessions){
+    const tr=element('tr'),cell=element('td'),button=element('button',session.title||t('Title unavailable'),'session-open');
+    button.type='button';button.onclick=()=>{$('show-sessions').checked=true;openSession(sessionIdentity(session));};
+    cell.append(button);tr.append(cell);
+    for(const value of [session.host+' / '+session.app,session.tokens.toLocaleString(uiLocale()),session.requests.toLocaleString(uiLocale()),money(session.cost),...responseRateCells(session)])tr.append(element('td',value));
+    $('project-session-body').append(tr);
+  }
+}
 function chartResolution(){
   const resolution=timeResolution($('from').value,$('through').value,filtered(),Math.max(820,$('chart-wrap').clientWidth)-140);
   if(!data?.hourly_rows?.length){resolution.intraday=false;resolution.hours=24;}
@@ -148,6 +200,7 @@ function modelControls(){
   }
 }
 function render(resetLimit=true){
+  if(!snapshotPending)$('snapshot-status').hidden=true;
   const period=leaderPeriod($('from').value,$('through').value);
   const resolution=chartResolution(),hourly=resolution.intraday;
   const slotName=hourly?(resolution.hours===1?'Hourly':resolution.hours+'-hour'):'Daily';
@@ -159,6 +212,7 @@ function render(resetLimit=true){
   const rows=filtered(), available=availableModels(), selectedCount=[...available].filter(model=>selected.has(model)).length;
   $('selection').textContent=bilingual(`Models · ${selectedCount} of ${available.size}`,`模型 · 已选 ${selectedCount} / ${available.size}`);
   renderSessions(resetLimit);
+  renderProjects();
   renderResponseSpeed();
   $('tokens').textContent=compact(rows.reduce((a,r)=>a+r.tokens,0));
   $('tokens').title=rows.reduce((a,r)=>a+r.tokens,0).toLocaleString(uiLocale());
@@ -166,6 +220,7 @@ function render(resetLimit=true){
   $('requests').textContent=rows.reduce((a,r)=>a+r.requests,0).toLocaleString(uiLocale());
   $('count').textContent=new Set(rows.map(r=>r.model)).size;
   $('empty').hidden=rows.length>0;$('chart-wrap').hidden=!rows.length;$('leaders').replaceChildren();$('tooltip').hidden=true;
+  $('snapshot').disabled=!rows.length||snapshotPending;
   if(!rows.length){$('leaders').append(element('p',t('No usage matches these filters.')));return;}
   const months=new Map();
   for(const r of rows){
@@ -227,12 +282,12 @@ function draw(days,leaders,resolution){
   }
   chart.append(svg('text',{x:L,y:T-12,fill:'#627181','font-size':12},t('Tokens')),svg('text',{x:W-R,y:T-12,'text-anchor':'end',fill:'#627181','font-size':12},t('Estimated USD')));
   const width=Math.max(.6,Math.min(42,(W-L-R)/(hourly?span:span/86400000)*.8));
-  for(const d of days){let base=0;for(const [name,tokens]of [...d.models].sort()){
-    const bar=svg('rect',{x:x(d.date)-width/2,y:y(base+tokens),width,height:tokens/ymax*(H-T-B),fill:color(name),opacity:.7,tabindex:0,'aria-label':`${d.date}, ${name}: ${tokens.toLocaleString(uiLocale())} tokens`});
+  for(const d of days){for(const {name,tokens,base,end}of usageBarSegments(d.models)){
+    const bar=svg('rect',{x:x(d.date)-width/2,y:y(end),width,height:tokens/ymax*(H-T-B),fill:color(name),opacity:.7,tabindex:0,'data-model':name,'data-tokens':tokens,'data-slot':d.date,'aria-label':`${d.date}, ${name}: ${tokens.toLocaleString(uiLocale())} tokens`});
     const slotLabel=(hourly&&resolution.days===1?resolution.from+' ':'')+timeLabel(d.date);
     const tip=bilingual(`${slotLabel}\n${name}\n${tokens.toLocaleString(uiLocale())} tokens\n${hourly?resolution.hours+'-hour slot':'Day'} total: ${d.tokens.toLocaleString(uiLocale())} tokens · ${money(d.cost)} est.`,`${slotLabel}\n${name}\n${tokens.toLocaleString(uiLocale())} Token\n时段合计：${d.tokens.toLocaleString(uiLocale())} Token · ${money(d.cost)}（预估）`);
     const show=()=>{const bounds=bar.getBoundingClientRect(),card=$('tooltip').parentElement.getBoundingClientRect();$('tooltip').textContent=tip;$('tooltip').hidden=false;$('tooltip').style.left=Math.max(5,Math.min(bounds.left-card.left,card.width-335))+'px';$('tooltip').style.top=Math.max(45,bounds.top-card.top-100)+'px';};
-    bar.addEventListener('mouseenter',show);bar.addEventListener('focus',show);bar.addEventListener('mouseleave',()=>$('tooltip').hidden=true);bar.addEventListener('blur',()=>$('tooltip').hidden=true);chart.append(bar);base+=tokens;
+    bar.addEventListener('mouseenter',show);bar.addEventListener('focus',show);bar.addEventListener('mouseleave',()=>$('tooltip').hidden=true);bar.addEventListener('blur',()=>$('tooltip').hidden=true);chart.append(bar);
   }}
   let path='',previous=null;
   for(const d of days){const t=hourly?positions.get(d.date):Date.parse(d.date+'T00:00:00Z');path+=(previous!==null&&t-previous===(hourly?1:86400000)&&d.date!=='Unknown hour'?' L':' M')+x(d.date)+' '+cy(d.cost);previous=t;}
@@ -248,6 +303,62 @@ function draw(days,leaders,resolution){
   for(const d of days.slice(1,-1))if(d.date.endsWith('-01')&&x(d.date)-lastLabel>85&&x(days.at(-1).date)-x(d.date)>85){labels.push(d.date);lastLabel=x(d.date);}
   if(days.length>1&&x(days.at(-1).date)-x(labels[0])>65)labels.push(days.at(-1).date);
   for(const date of labels)chart.append(svg('text',{x:x(date),y:H-18,'text-anchor':'middle',fill:'#627181','font-size':12},date));
+}
+async function downloadUsageSnapshot(){
+  const button=$('snapshot'),message=$('snapshot-status');
+  if(!data||!filtered().length||snapshotPending)return;
+  snapshotPending=true;
+  button.disabled=true;message.hidden=false;message.className='';message.textContent=t('Preparing snapshot…');
+  try{
+    // Capture the current rendered selection before image decoding can yield.
+    const copy=$('chart').cloneNode(true),bounds=$('chart').viewBox.baseVal,W=bounds.width,H=bounds.height;
+    const dates=filtered().map(row=>row.date).sort(),from=$('from').value||dates[0],through=$('through').value||dates.at(-1);
+    const models=[...new Set(filtered().map(row=>row.model))].sort();
+    const canvas=document.createElement('canvas'),context=canvas.getContext('2d');
+    if(!context)throw new Error(t('Image export is unavailable in this browser.'));
+    context.font='13px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    const legend=snapshotLegendLayout(models,W,text=>context.measureText(text).width);
+    const header=80,legendTop=header+H+36,totalHeight=legendTop+legend.height+48;
+    const output=svg('svg',{xmlns:'http://www.w3.org/2000/svg',width:W,height:totalHeight,viewBox:`0 0 ${W} ${totalHeight}`});
+    output.setAttribute('font-family','system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif');
+    output.append(svg('rect',{x:0,y:0,width:W,height:totalHeight,fill:'#fff'}));
+    output.append(svg('text',{x:24,y:28,fill:'#243341','font-size':20,'font-weight':650},'TokenScope · '+$('usage-chart-title').textContent));
+    output.append(svg('text',{x:24,y:52,fill:'#627181','font-size':13},`${from} → ${through} · ${data.host_timezone||t('Dashboard host local time')}`));
+    output.append(svg('text',{x:24,y:72,fill:'#627181','font-size':12},t('Colored bars: tokens by model, left axis.')+' '+$('usage-cost-key').textContent));
+    copy.removeAttribute('id');copy.removeAttribute('style');
+    copy.setAttribute('x',0);copy.setAttribute('y',header);copy.setAttribute('width',W);copy.setAttribute('height',H);
+    for(const node of copy.querySelectorAll('*')){
+      node.removeAttribute('style');node.removeAttribute('tabindex');
+    }
+    output.append(copy);
+    output.append(svg('text',{x:24,y:legendTop-12,fill:'#243341','font-size':14,'font-weight':650},t('Models')));
+    for(const entry of legend.entries){
+      output.append(svg('rect',{x:entry.x,y:legendTop+entry.y,width:12,height:12,fill:color(entry.name),opacity:.7}));
+      entry.lines.forEach((line,index)=>output.append(svg('text',{x:entry.x+24,y:legendTop+entry.y+11+index*18,fill:'#243341','font-size':13},line)));
+    }
+    if(window.TOKEN_SCOPE_DEMO)output.append(svg('text',{x:24,y:totalHeight-38,fill:'#627181','font-size':12},t('Synthetic demo: all usage and prices are fictional.')));
+    output.append(svg('text',{x:24,y:totalHeight-20,fill:'#627181','font-size':12},t('Recorded costs are estimates; zero can mean missing pricing.')));
+    const serialized=new XMLSerializer().serializeToString(output),image=new Image();
+    await new Promise((resolve,reject)=>{
+      image.onload=resolve;image.onerror=()=>reject(new Error(t('Could not render the snapshot image.')));
+      image.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(serialized);
+    });
+    // A 2× PNG is readable offline and needs no backend, account, or external library.
+    canvas.width=Math.ceil(W*2);canvas.height=Math.ceil(totalHeight*2);
+    context.scale(2,2);context.drawImage(image,0,0,W,totalHeight);
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+    if(!blob)throw new Error(t('Could not encode the snapshot image.'));
+    const url=URL.createObjectURL(blob),link=document.createElement('a');
+    link.href=url;link.download=`tokenscope-usage-${from}-to-${through}.png`;
+    document.body.append(link);link.click();link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    message.textContent=t('Snapshot downloaded with model legend.');
+  }catch(error){
+    message.className='error';message.textContent=t('Snapshot failed: ')+error.message;
+  }finally{
+    snapshotPending=false;
+    button.disabled=!filtered().length;
+  }
 }
 function installData(next){
   if(!next)return;const allSelected=selected.size===known.size;data=next;
@@ -284,16 +395,20 @@ $('all').onclick=()=>{selected=new Set(matchingModels(availableModels(),$('searc
 $('reset').onclick=()=>{$('from').value='';$('through').value='';$('search').value='';selected=new Set(known);modelControls();render();};
 async function action(path,body){try{await request(path,body);await poll();}catch(e){$('status').textContent=e.message;$('status').className='error';}}
 $('refresh').onclick=()=>action('/api/refresh',{});
+$('snapshot').onclick=downloadUsageSnapshot;
 $('apply').onclick=()=>{const seconds=Number($('interval').value);if(!Number.isInteger(seconds)||seconds<5||seconds>600){$('status').textContent=t('Choose an integer from 5 to 600 seconds.');return;}action('/api/interval',{seconds});};
 let resizeTimer;
 new ResizeObserver(()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{if(data)render(false);},120);}).observe($('chart-wrap'));
 $('show-sessions').addEventListener('change',()=>renderSessions());
+$('show-projects').addEventListener('change',()=>renderProjects());
+$('project-detail-close').onclick=()=>{activeProjectKey=null;renderProjects();};
 try{$('native-tps').checked=localStorage.getItem('tokenscope-native-tps')!=='false';}catch(error){console.warn('TPS preference unavailable',error);}
 $('native-tps').addEventListener('change',()=>{
   $('speed-native-tps').checked=$('native-tps').checked;
   try{localStorage.setItem('tokenscope-native-tps',String($('native-tps').checked));}catch(error){console.warn('TPS preference not saved',error);}
   renderSessions(false);
   renderResponseSpeed();
+  renderProjects();
 });
 // One preference controls native TPS estimates in both response and session views.
 $('speed-native-tps').checked=$('native-tps').checked;

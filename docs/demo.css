@@ -12,11 +12,11 @@ header{align-items:flex-end;margin-bottom:18px}.live-controls[hidden]{display:no
 #status{font-size:13px;border-left:3px solid #9cb5da;padding-left:12px;margin:22px 0 14px}
 .metrics strong{font-size:30px;letter-spacing:-1px}.metrics div{border-radius:12px}
 .chart-card{box-shadow:0 10px 30px #22345506;border-radius:14px}
-#chart rect[tabindex]{transform-box:view-box;transform-origin:center bottom;animation:rise 1.2s cubic-bezier(.22,.61,.36,1) both}
+#chart rect[tabindex]{animation:barFade 1.2s cubic-bezier(.22,.61,.36,1) both}
 #chart rect[tabindex]:nth-of-type(3n){animation-delay:.12s}
 #chart rect[tabindex]:nth-of-type(3n+1){animation-delay:.24s}
 #chart path{stroke-dasharray:3000;stroke-dashoffset:3000;animation:trace 1.7s ease-out .25s forwards}
-@keyframes rise{from{transform:scaleY(0);opacity:0}to{transform:scaleY(1);opacity:.7}}
+@keyframes barFade{from{opacity:0}to{opacity:.7}}
 @keyframes trace{to{stroke-dashoffset:0}}
 @media(prefers-reduced-motion:reduce){#chart rect[tabindex],#chart path{animation:none;transform:none;stroke-dashoffset:0}}
 @media(max-width:760px){main{padding:18px}.demo-nav{gap:10px;flex-wrap:wrap;margin-bottom:25px}.demo-nav>a:first-child{font-size:21px}.demo-nav>a:last-child{font-size:12px}.demo-badge{font-size:9px;padding:6px 8px}h1{letter-spacing:-1.3px}.demo-actions{margin-top:20px}.metrics strong{font-size:24px}}

@@ -168,6 +168,25 @@ if (typeof window !== 'undefined') {
   language = ['en','zh-CN'].includes(requested) ? requested
     : ['en','zh-CN'].includes(saved) ? saved : navigator.language.startsWith('zh') ? 'zh-CN' : 'en';
 }
+Object.assign(ZH,{
+  'Download snapshot':'下载图表快照',
+  'Preparing snapshot…':'正在生成快照…',
+  'Snapshot downloaded with model legend.':'已下载包含模型图例的图表快照。',
+  'Snapshot failed: ':'快照生成失败：',
+  'Image export is unavailable in this browser.':'此浏览器无法导出图片。',
+  'Could not render the snapshot image.':'无法渲染图表快照。',
+  'Could not encode the snapshot image.':'无法编码图表快照。',
+  'Dashboard host local time':'仪表板主机本地时间',
+  'Recorded costs are estimates; zero can mean missing pricing.':'记录的费用为预估值；零费用可能表示缺少定价。',
+  'Synthetic demo: all usage and prices are fictional.':'模拟演示：所有用量和费用均为虚构。',
+  'Show per-project usage':'显示按项目用量',
+  'Per-project usage':'按项目用量',
+  'Project':'项目','Project detail':'项目详情','Project unavailable':'项目不可用','Sessions':'会话',
+  'Top projects by tokens':'Token 用量最多的项目','Project details table':'项目明细表',
+  'Projects with the same name and path are combined across machines and apps. Recognized cloud-drive roots use cloud-relative paths; different folders or cloud services remain separate. Date and model filters apply. Missing or conflicting metadata stays unassigned.':'名称和路径相同的项目跨机器、跨应用合并。已识别的云盘根目录按云盘相对路径匹配；不同目录或云盘服务保持独立。日期及模型筛选同样适用。缺失或冲突的元数据保持未归属。',
+  'TPS uses the same response-time calculation and native-log estimate switch as per-session analysis; untimed responses are excluded.':'TPS 使用与会话分析相同的响应时间计算及原生日志估算开关；无计时的响应不参与计算。',
+  'No project detail matches these filters. Refresh collection to load saved project metadata.':'没有符合筛选条件的项目明细。请刷新采集以加载已保存的项目元数据。'
+});
 function t(text) { return language === 'zh-CN' ? (ZH[text] ?? text) : text; }
 function bilingual(en, zh) { return language === 'zh-CN' ? zh : en; }
 function uiLocale() { return language === 'zh-CN' ? 'zh-CN' : 'en-US'; }

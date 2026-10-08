@@ -269,6 +269,12 @@ Manual `update.py` exports remain available when requested. Restart
 after editing configuration. Each refresh reads all retained CC-Switch statistics;
 it is not an incremental ingestion process. Sync CC-Switch first for fresh imports.
 
+## Per-project usage
+
+**Show per-project usage** reveals a token ranking and exact totals for each saved working folder: input/cache/output tokens, recorded estimated cost, requests, distinct sessions, and average/maximum response TPS. Click a project for date, model, and conversation breakdowns; click a conversation to open its existing session detail.
+
+The date/model filters and native-log TPS preference apply to both views. Folder identities are hashed before export; only the folder name is displayed. Projects with the same name and path merge across machines and apps, with all contributing machines listed. Recognized Dropbox, OneDrive, Google Drive, iCloud Drive, and Box roots use the path relative to that cloud service, so different account or machine root paths are acceptable. Different relative folders or cloud services stay separate; names alone never trigger a merge. Cloud-relative folder/name spelling must agree, including case. Existing cached keys need a successful refresh; disconnected machines retain their older identities until they reconnect. Exact session/message-ID matches must agree on a folder; missing or conflicting metadata and historical rollups remain unassigned, with coverage shown explicitly. Conversations remain distinct by machine, application, and session identity.
+
 ## Per-session usage
 
 Check **Show per-session usage** in the filter bar to reveal the heatmap and table; uncheck it
