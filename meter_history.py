@@ -24,6 +24,7 @@ class MeterHistory:
         self.folder = Path(folder) if folder else None
         self.lock = threading.RLock()
         self.rows, self.dirty = {}, {}
+        self.receipt_rows, self.receipt_dirty, self.receipt_seconds = {}, {}, {}
         self.seconds = deque(maxlen=600)
         self.fine_rates, self.fine_usage = {}, {}
         self.previous = None
@@ -59,8 +60,10 @@ class MeterHistory:
     def _restore(self):
         cutoff = int((time.time() - RETENTION) // 60) * 60
         for path in sorted(self.folder.glob('*.jsonl')):
-            if not re.fullmatch(r'\d{4}-\d{2}-\d{2}\.jsonl', path.name):
+            match = re.fullmatch(r'(receipts-)?\d{4}-\d{2}-\d{2}\.jsonl', path.name)
+            if not match:
                 continue
+            receipts = bool(match.group(1))
             if path.is_symlink() or path.stat().st_size > 4 * 1024 * 1024:
                 raise ValueError('Invalid or oversized meter history journal')
             body = path.read_bytes()
@@ -70,10 +73,100 @@ class MeterHistory:
                     print('Meter history: incomplete journal tail excluded.', file=sys.stderr, flush=True)
                     break
                 row = json.loads(line)
-                if not self._valid(row):
+                if not (self._valid_receipt(row) if receipts else self._valid(row)):
                     raise ValueError('Invalid meter history record at line ' + str(index + 1))
                 if row[1] >= cutoff:
-                    self.rows[self._key(row)] = row
+                    if receipts:
+                        self.receipt_rows[row[1]] = row
+                    else:
+                        self.rows[self._key(row)] = row
+
+    @staticmethod
+    def _valid_receipt(row):
+        return (isinstance(row, list) and len(row) == 5 and type(row[0]) is int and row[0] == 2 and
+                type(row[1]) is int and row[1] % 60 == 0 and
+                type(row[2]) is int and 0 <= row[2] <= 2**63 - 1 and
+                all(type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 60
+                    for value in row[3:5]))
+
+    def observe_receipts(self, updates, now=None):
+        """Absolute bins from ReceivedOutput; reconcile copies without recounting."""
+        now = time.time() if now is None else now
+        with self.lock:
+            for item in updates:
+                stamp, tokens = item['start'], item['output_tokens']
+                observed, partial = item['observed'], item['partial']
+                if (type(stamp) is not int or type(tokens) is not int or not 0 <= tokens <= 2**63 - 1 or
+                        type(observed) is not bool or type(partial) is not bool):
+                    raise ValueError('Invalid receipt history bin')
+                value = (tokens, observed, partial)
+                old = self.receipt_seconds.get(stamp, (0, False, False))
+                if stamp in self.receipt_seconds and old == value:
+                    continue
+                self.receipt_seconds[stamp] = value
+                minute = stamp // 60 * 60
+                row = list(self.receipt_rows.get(minute, [2, minute, 0, 0, 0]))
+                row[2] += tokens - old[0]
+                row[3] += int(observed) - int(old[1])
+                row[4] += int(partial) - int(old[2])
+                if not self._valid_receipt(row):
+                    raise ValueError('Receipt history correction exceeds its minute')
+                self.receipt_rows[minute] = row
+                self.receipt_dirty[minute] = row
+            # Retain completed-bin boundaries plus the 600-second reconciliation
+            # window. Insertion order preserves old corrections across a clock
+            # adjustment; wall-clock age must not discard their previous values.
+            for stamp in list(self.receipt_seconds)[:max(0, len(self.receipt_seconds) - 602)]:
+                self.receipt_seconds.pop(stamp)
+            if len(self.receipt_rows) > RETENTION // 60 + 100:
+                cutoff = int((now - RETENTION) // 60) * 60
+                for stamp in [stamp for stamp in self.receipt_rows if stamp < cutoff]:
+                    self.receipt_rows.pop(stamp)
+                    self.receipt_dirty.pop(stamp, None)
+
+    def _receipt_snapshot(self, begin, end, step, now):
+        buckets = [{'start': stamp, 'output_tokens': None, 'receipt_tps': None,
+                    'observed_seconds': 0, 'partial': False, 'coarse_receipts': False}
+                   for stamp in range(begin, end, step)]
+        fine = defaultdict(list)
+        for stamp, value in self.receipt_seconds.items():
+            fine[stamp // 60 * 60].append((stamp, value))
+        for minute, row in self.receipt_rows.items():
+            if minute + 60 <= begin or minute >= end:
+                continue
+            detail = fine.get(minute, [])
+            use_detail = (detail and sum(value[0] for _, value in detail) == row[2] and
+                          sum(value[1] for _, value in detail) == row[3] and
+                          sum(value[2] for _, value in detail) == row[4])
+            if use_detail:
+                parts = [(stamp, 1, value[0], int(value[1]), int(value[2]), False)
+                         for stamp, value in detail]
+            else:
+                # A restored current-minute record must not spread its known
+                # receipts into future time. Complete older minutes use 60 s.
+                span = min(60, max(1, int(now - minute), row[3], row[4]))
+                parts = [(minute, span, row[2], row[3], row[4], step < 60)]
+            for stamp, span, tokens, observed, partial, coarse in parts:
+                first = max(0, (stamp - begin) // step)
+                last = min(len(buckets), math.ceil((stamp + span - begin) / step))
+                for index in range(first, last):
+                    bucket = buckets[index]
+                    overlap = min(stamp + span, bucket['start'] + step) - max(stamp, bucket['start'])
+                    fraction = overlap / span
+                    if tokens or observed:
+                        bucket['output_tokens'] = (bucket['output_tokens'] or 0) + tokens * fraction
+                    bucket['observed_seconds'] += observed * fraction
+                    bucket['coarse_receipts'] |= coarse
+                    if partial:
+                        bucket['partial'] = True
+        for bucket in buckets:
+            tokens = bucket['output_tokens']
+            if tokens is not None:
+                bucket['receipt_tps'] = tokens / step
+            # Missing time remains explicit; the denominator is always the full
+            # bucket duration, just as the usage average always divides by 300.
+            bucket['partial'] |= bucket['observed_seconds'] < step
+        return buckets
 
     def _put(self, row):
         key = self._key(row)
@@ -252,6 +345,7 @@ class MeterHistory:
             storage = {'enabled': bool(self.folder), 'save_interval_seconds': SAVE_INTERVAL,
                        'bytes_written': self.bytes_written, 'save_batches': self.save_batches,
                        'last_saved_at': self.last_saved, 'error': self.storage_error}
+            receipts = self._receipt_snapshot(begin, end, step, now)
             # Detailed rates are optional RAM data. Keep usage counts at their
             # recorded minute grain; never spread a late count into fake seconds.
             fine = None
@@ -276,6 +370,7 @@ class MeterHistory:
         average_seconds = sum(row[4] for row in buckets)
         token_available = any(row[6] for row in buckets)
         result = {'version': 1, 'range_seconds': period, 'bucket_seconds': step,
+                'receipt_basis': 'reported_output', 'receipt_buckets': receipts,
                 'start': begin, 'end': end, 'buckets': output,
                 'total_tps': sum(row[1] for row in buckets) / seconds if seconds else None,
                 'average_tps': sum(row[3] for row in buckets) / average_seconds if average_seconds else None,
@@ -291,15 +386,18 @@ class MeterHistory:
         if not self.folder:
             return
         with self.lock:
-            pending = dict(self.dirty)
+            pending = {('usage', key): row for key, row in self.dirty.items()}
+            pending.update({('receipts', key): row for key, row in self.receipt_dirty.items()})
         if not pending:
             return
         groups = defaultdict(list)
-        for key, row in pending.items():
+        for (kind, key), row in pending.items():
             day = datetime.fromtimestamp(row[1], timezone.utc).strftime('%Y-%m-%d')
-            groups[day].append((key, row))
-        for day, records in sorted(groups.items()):
-            path = self.folder / (day + '.jsonl')
+            groups[kind, day].append((key, row))
+        for (kind, day), records in sorted(groups.items()):
+            path = self.folder / (('receipts-' if kind == 'receipts' else '') + day + '.jsonl')
+            rows = self.receipt_rows if kind == 'receipts' else self.rows
+            dirty = self.receipt_dirty if kind == 'receipts' else self.dirty
             if path.is_symlink():
                 raise ValueError('Meter journal must not be a symlink')
             # Remove only a torn final append. Completed records remain intact.
@@ -318,7 +416,7 @@ class MeterHistory:
             if path.exists() and path.stat().st_size + len(data) > 2 * 1024 * 1024:
                 # Compact only oversized journals, retaining the latest minute values.
                 with self.lock:
-                    records = [(key, row) for key, row in self.rows.items()
+                    records = [(key, row) for key, row in rows.items()
                                if datetime.fromtimestamp(row[1], timezone.utc).strftime('%Y-%m-%d') == day]
                 data = ''.join(json.dumps(row, separators=(',', ':'), allow_nan=False) + '\n'
                                for _, row in sorted(records)).encode()
@@ -338,11 +436,12 @@ class MeterHistory:
             with self.lock:
                 self.bytes_written += len(data)
                 for key, row in records:
-                    if self.dirty.get(key) == row:
-                        self.dirty.pop(key)
+                    if dirty.get(key) == row:
+                        dirty.pop(key)
         cutoff_day = datetime.fromtimestamp(time.time() - RETENTION - 86400, timezone.utc).strftime('%Y-%m-%d')
         for path in self.folder.glob('*.jsonl'):
-            if re.fullmatch(r'\d{4}-\d{2}-\d{2}\.jsonl', path.name) and path.stem < cutoff_day:
+            if (re.fullmatch(r'(receipts-)?\d{4}-\d{2}-\d{2}\.jsonl', path.name) and
+                    path.stem.removeprefix('receipts-') < cutoff_day):
                 path.unlink()
         with self.lock:
             self.save_batches += 1

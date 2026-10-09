@@ -15,6 +15,9 @@ import zlib
 
 WINDOW_SECONDS = 5
 HEARTBEAT_TIMEOUT = 3
+RECEIVED_CHART_SECONDS = 60
+OUTPUT_AVERAGE_SECONDS = 300
+RECEIPT_HISTORY_SECONDS = 600
 ROOT = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
 PROBE_OPTIONS = ('database', 'codex_session_roots', 'codex_home', 'claude_projects',
                  'codex_native_tps', 'codex_otel_port')
@@ -195,7 +198,7 @@ def project_sources(states, now):
 
 
 class ReceivedOutput:
-    """Count new usage-report deltas at receipt time; keep sixty one-second bins in RAM.
+    """Count new usage-report deltas at receipt time; keep ten minutes in RAM.
 
     Readers already exclude startup replay and historical imports. Retained samples
     are cumulative per response, so repeated heartbeats and copies add no tokens.
@@ -206,17 +209,21 @@ class ReceivedOutput:
         self.next_second = math.floor(now)
         self.last_tick = now
         self.started_at = now
+        self.history_dirty = set()
 
     def _second(self, second):
-        return self.seconds.setdefault(second, {'tokens': 0, 'available': False, 'partial': True})
+        return self.seconds.setdefault(second, {'tokens': 0, 'available': False,
+                                               'observed': False, 'partial': True})
 
     def _exclude(self, response, reason='conflict'):
         if not response['excluded']:
-            for second, delta in response['arrivals']:
+            for arrival_time, delta in response['arrivals']:
+                second = math.floor(arrival_time)
                 if second in self.seconds:
                     self.seconds[second]['tokens'] -= delta
                     self.seconds[second]['partial'] = True
                     self.seconds[second]['excluded'] = True
+                    self.history_dirty.add(second)
         if reason == 'native_authority':
             response['arrivals'].clear()
         response['excluded'] = reason
@@ -270,9 +277,11 @@ class ReceivedOutput:
                 # As copied cumulative reports catch up, restore their original
                 # receipt bins; reconciliation is not another token delivery.
                 previous['excluded'] = False
-                for second, delta in previous['arrivals']:
+                for arrival_time, delta in previous['arrivals']:
+                    second = math.floor(arrival_time)
                     if second in self.seconds:
                         self.seconds[second]['tokens'] += delta
+                        self.history_dirty.add(second)
             if not previous['session']:
                 previous['session'] = sample['session_key']
             previous['basis'] = sample['basis']
@@ -281,24 +290,60 @@ class ReceivedOutput:
             if delta:
                 second = math.floor(received)
                 self._second(second)['tokens'] += delta
-                previous['arrivals'].append((second, delta))
+                self.history_dirty.add(second)
+                previous['arrivals'].append((received, delta))
 
     def finish(self, snapshot, now):
         current = math.floor(now)
         # Sleep or a stalled consumer creates gaps, never invented zero readings.
         continuous = now - self.last_tick <= 2.5
-        for second in range(max(self.next_second, current - 60), current):
+        observed = any(source['status'] == 'fresh' for source in snapshot['sources'])
+        for second in range(max(self.next_second, current - RECEIPT_HISTORY_SECONDS), current):
             bucket = self._second(second)
             if continuous:
-                bucket['available'] = snapshot['total_tps'] is not None and second >= self.started_at
+                # A watched second with no usage report is a receipt zero even
+                # when generation timing is pending. Coverage stays explicit.
+                bucket['observed'] = observed and second >= self.started_at
+                bucket['available'] = bucket['observed']
                 bucket['partial'] = (snapshot['status'] != 'complete' or second < self.started_at or
                                      bucket.get('excluded', False))
+            self.history_dirty.add(second)
         self.next_second, self.last_tick = current, now
-        self.seconds = {s: b for s, b in self.seconds.items() if s >= current - 60}
+        self.seconds = {s: b for s, b in self.seconds.items() if s >= current - RECEIPT_HISTORY_SECONDS}
+        self.history_dirty.intersection_update(self.seconds)
         self.responses = {k: r for k, r in self.responses.items() if r['last_seen'] >= now - 600}
         self.telemetry_sessions = {s: stamp for s, stamp in self.telemetry_sessions.items() if stamp >= now - 600}
         for response in self.responses.values():
-            response['arrivals'] = [(s, n) for s, n in response['arrivals'] if s >= current - 60]
+            response['arrivals'] = [(stamp, n) for stamp, n in response['arrivals']
+                                    if stamp >= now - RECEIPT_HISTORY_SECONDS]
+
+    def history_updates(self, now, wall):
+        """Completed absolute bins, including corrections; no replay or new timer."""
+        completed = sorted(second for second in self.history_dirty if second < math.floor(now))
+        self.history_dirty.difference_update(completed)
+        for second in completed:
+            self.seconds[second].setdefault('wall', math.floor(wall - now + second))
+        return [{'start': self.seconds[second]['wall'],
+                 'output_tokens': self.seconds[second]['tokens'],
+                 'observed': self.seconds[second]['observed'],
+                 'partial': self.seconds[second]['partial']}
+                for second in completed]
+
+    def average_snapshot(self, now):
+        # Count actual report-receipt times in the trailing 300 seconds, including
+        # the current second. The bar chart still shows completed one-second bins.
+        # Idle/waiting time remains in the divisor; no active-time normalization.
+        current = math.floor(now)
+        buckets = [b for s, b in self.seconds.items()
+                   if current - OUTPUT_AVERAGE_SECONDS <= s < current]
+        tokens = sum(delta for response in self.responses.values() if not response['excluded']
+                     for received, delta in response['arrivals']
+                     if now - OUTPUT_AVERAGE_SECONDS <= received <= now)
+        available = tokens > 0 or any(b['observed'] for b in buckets)
+        return {'window_seconds': OUTPUT_AVERAGE_SECONDS, 'basis': 'reported_output',
+                'output_tokens': tokens,
+                'average_tps': tokens / OUTPUT_AVERAGE_SECONDS if available else None,
+                'partial': len(buckets) < OUTPUT_AVERAGE_SECONDS or any(b['partial'] for b in buckets)}
 
     def snapshot(self, now):
         current = math.floor(now)
@@ -306,7 +351,8 @@ class ReceivedOutput:
             {'age_seconds': max(0, now - second - 1),
              'tokens': bucket['tokens'] if bucket['tokens'] or bucket['available'] else None,
              'partial': bucket['partial']}
-            for second, bucket in sorted(self.seconds.items()) if current - 60 <= second < current]}
+            for second, bucket in sorted(self.seconds.items())
+            if current - RECEIVED_CHART_SECONDS <= second < current]}
 
 
 def _stop_process(process):
@@ -395,11 +441,14 @@ class LiveMeter:
                         state['error'] = error
             now = time.monotonic()
             if now >= next_sample:
+                wall = time.time()
                 with self.lock:
                     snapshot = project_sources(self.states, now)
                     self.received_output.finish(snapshot, now)
+                    receipts = self.received_output.history_updates(now, wall) if self.history is not None else []
                 if self.history is not None:
-                    self.history.observe(snapshot, wall=time.time(), monotonic=now)
+                    self.history.observe(snapshot, wall=wall, monotonic=now)
+                    self.history.observe_receipts(receipts, now=wall)
                 next_sample = math.floor(now) + 1
 
     def _command(self, cfg):
@@ -495,6 +544,7 @@ class LiveMeter:
             now = time.monotonic()
             result = project_sources(self.states, now)
             result['received_output'] = self.received_output.snapshot(now)
+            result['output_average'] = self.received_output.average_snapshot(now)
             return result
 
     def close(self):

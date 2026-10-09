@@ -15,6 +15,104 @@ from update import aggregate
 
 
 class HistoryTests(unittest.TestCase):
+    def test_receipts_are_absolute_and_missing_time_is_not_normalized_away(self):
+        history = MeterHistory()
+        now = 1791396000
+        updates = [{'start': now + 10, 'output_tokens': 3000, 'observed': True, 'partial': False},
+                   {'start': now + 11, 'output_tokens': 0, 'observed': True, 'partial': True}]
+        history.observe_receipts(updates, now=now + 12)
+        history.observe_receipts(updates, now=now + 12)
+        rows = history.snapshot(600, now + 12)['receipt_buckets']
+        burst = next(row for row in rows if row['output_tokens'])
+        self.assertEqual(burst['output_tokens'], 3000)
+        self.assertEqual(burst['receipt_tps'], 600)  # 3000 / full five seconds
+        self.assertEqual(burst['observed_seconds'], 2)
+        self.assertTrue(burst['partial'])
+        self.assertEqual(sum(row['output_tokens'] or 0 for row in rows), 3000)
+        self.assertTrue(any(row['receipt_tps'] is None for row in rows))
+        history.observe_receipts([dict(updates[0], output_tokens=0, partial=True)], now=now + 12)
+        self.assertEqual(sum(row['output_tokens'] or 0 for row in history.snapshot(600, now + 12)['receipt_buckets']), 0)
+        self.assertEqual(history.receipt_rows[now][2], 0)
+
+    def test_receipt_minutes_are_batched_restored_and_not_mixed_with_estimates(self):
+        with tempfile.TemporaryDirectory() as folder:
+            history = MeterHistory(folder, start_writer=False)
+            now = int(datetime.now().timestamp()) // 60 * 60
+            updates = [{'start': now + second, 'output_tokens': 6000 if second == 10 else 0,
+                        'observed': True, 'partial': False} for second in range(60)]
+            history.observe_receipts(updates, now=now + 60)
+            self.assertFalse(list(Path(folder).glob('*.jsonl')))
+            self.assertEqual(history.receipt_rows[now], [2, now, 6000, 60, 0])
+            history.flush()
+            journal = next(Path(folder).glob('receipts-*.jsonl'))
+            self.assertEqual(json.loads(journal.read_text()), [2, now, 6000, 60, 0])
+            self.assertLess(journal.stat().st_size, 100)
+            size = journal.stat().st_size
+            history.observe_receipts(updates, now=now + 60)
+            history.flush()
+            self.assertEqual(journal.stat().st_size, size)
+            restored = MeterHistory(folder, start_writer=False)
+            rows = restored.snapshot(3600, now + 59)['receipt_buckets']
+            halves = [row for row in rows if now <= row['start'] < now + 60]
+            self.assertEqual([row['receipt_tps'] for row in halves], [100, 100])
+            self.assertEqual(sum(row['receipt_tps'] * 30 for row in halves), 6000)
+            self.assertTrue(all(row['coarse_receipts'] for row in halves))
+            self.assertIsNone(restored.snapshot(600, now + 59)['total_tps'])
+            self.assertEqual(SAVE_INTERVAL, 900)
+            history.close();restored.close()
+
+    def test_receipt_torn_tail_recovery_and_old_generation_history(self):
+        with tempfile.TemporaryDirectory() as folder:
+            history = MeterHistory(folder, start_writer=False)
+            now = int(datetime.now().timestamp()) // 60 * 60
+            history.observe({'total_tps': 15, 'average_tps': 15, 'status': 'complete'}, now, 0)
+            history.observe({'total_tps': 15, 'average_tps': 15, 'status': 'complete'}, now + 1, 1)
+            history.observe_receipts([{'start': now + 2, 'output_tokens': 300,
+                                      'observed': True, 'partial': False}], now=now + 3)
+            history.close()
+            journal = next(Path(folder).glob('receipts-*.jsonl'))
+            with journal.open('ab') as stream:stream.write(b'[2,')
+            restored = MeterHistory(folder, start_writer=False)
+            result = restored.snapshot(600, now + 4)
+            self.assertEqual(result['total_tps'], 15)
+            self.assertEqual(sum(row['output_tokens'] or 0 for row in result['receipt_buckets']), 300)
+            self.assertIsNotNone(restored.storage_error)
+            restored.observe_receipts([{'start': now + 4, 'output_tokens': 200,
+                                       'observed': True, 'partial': False}], now=now + 5)
+            restored.close()
+            self.assertTrue(journal.read_bytes().endswith(b'\n'))
+            again = MeterHistory(folder, start_writer=False)
+            self.assertEqual(again.receipt_rows[now][2], 500)
+            again.close()
+
+    def test_all_receipt_ranges_conserve_tokens_and_do_not_relabel_legacy_rates(self):
+        history = MeterHistory()
+        now = 1791396000
+        for second in range(60):
+            history.observe_receipts([{'start': now + second, 'output_tokens': 1200 if second == 30 else 0,
+                                      'observed': True, 'partial': False}], now=now + 60)
+        for period in RANGES:
+            with self.subTest(period=period):
+                result = history.snapshot(period, now + 59)
+                rows = result['receipt_buckets']
+                self.assertEqual(len(rows), 120)
+                self.assertAlmostEqual(sum((row['receipt_tps'] or 0) * result['bucket_seconds'] for row in rows), 1200)
+                self.assertLessEqual(len(history.receipt_seconds), 600)
+        legacy = MeterHistory()
+        legacy.observe({'total_tps': 15, 'average_tps': 15, 'status': 'complete'}, now, 0)
+        legacy.observe({'total_tps': 15, 'average_tps': 15, 'status': 'complete'}, now + 1, 1)
+        self.assertTrue(all(row['receipt_tps'] is None for row in legacy.snapshot(600, now + 1)['receipt_buckets']))
+
+    def test_receipt_reconciliation_keeps_previous_bin_across_wall_clock_jump(self):
+        history = MeterHistory()
+        now = 1791396000
+        item = {'start': now + 1, 'output_tokens': 500, 'observed': True, 'partial': False}
+        history.observe_receipts([item], now=now + 2)
+        history.observe_receipts([{'start': now + 3600, 'output_tokens': 0,
+                                  'observed': True, 'partial': True}], now=now + 3601)
+        history.observe_receipts([dict(item, output_tokens=0, partial=True)], now=now + 3601)
+        self.assertEqual(history.receipt_rows[now][2], 0)
+
     def test_three_sessions_and_gaps_have_weighted_rates(self):
         history = MeterHistory()
         now = 1791396000

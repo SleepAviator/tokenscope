@@ -185,7 +185,8 @@ class ReceivedOutputTests(unittest.TestCase):
         buckets = self.tick(meter, states, 202.1)
         self.assertEqual(sum(b['tokens'] or 0 for b in buckets), 0)
         self.assertTrue(buckets[-2]['partial'])
-        self.assertIsNone(buckets[-1]['tokens'])
+        self.assertEqual(buckets[-1]['tokens'], 0)
+        self.assertTrue(buckets[-1]['partial'])
         self.tick(meter, states, 210.1)  # expired sources / consumer sleep
         self.assertTrue(all(b['tokens'] is None and b['partial'] for b in meter.snapshot(210.1)['buckets'][-8:]))
 
@@ -205,6 +206,143 @@ class ReceivedOutputTests(unittest.TestCase):
         self.assertFalse(meter.responses)
         self.assertFalse(meter.telemetry_sessions)
         self.assertNotIn('session', json.dumps(projection))
+
+    def test_usage_average_includes_idle_time_and_expires(self):
+        meter = ReceivedOutput(199)
+        states = {'host': frame([sample(tokens=6000, start=90)], received=200.2)}
+        meter.receive(states, 200.2)
+        self.tick(meter, states, 201.1)
+        usage = meter.average_snapshot(201.1)
+        self.assertEqual(usage['output_tokens'], 6000)
+        self.assertEqual(usage['average_tps'], 20)
+        self.assertTrue(usage['partial'])  # startup has not observed five minutes
+        # Waiting supplies no new output; the generation rate can be unknown.
+        states['host'] = frame([], received=210.2)
+        states['host']['packet']['pending_sessions'] = [{'session_key': 'session',
+            'runtime': 'codex', 'provider': 'OpenAI', 'model': 'Example', 'status': 'awaiting_usage'}]
+        self.tick(meter, states, 211.1)
+        self.assertIsNone(project_sources(states, 211.1)['total_tps'])
+        self.assertEqual(meter.average_snapshot(211.1)['average_tps'], 20)
+        self.tick(meter, states, 500.1)
+        self.assertEqual(meter.average_snapshot(500.1)['average_tps'], 20)
+        states['host'] = frame([], received=500.2)
+        meter.finish(project_sources(states, 501.1), 501.1)
+        self.assertEqual(meter.average_snapshot(501.1)['output_tokens'], 0)
+        self.assertEqual(meter.average_snapshot(501.1)['average_tps'], 0)
+        self.assertLessEqual(len(meter.seconds), 600)
+        self.assertLessEqual(len(meter.snapshot(501.1)['buckets']), 60)
+
+    def test_usage_average_idle_zero_and_disconnected_gaps(self):
+        meter = ReceivedOutput(199)
+        self.assertIsNone(meter.average_snapshot(199)['average_tps'])
+        states = {'host': frame([])}
+        for now in range(200, 501):
+            states['host']['received_at'] = now
+            meter.finish(project_sources(states, now), now)
+        self.assertEqual(meter.average_snapshot(500)['average_tps'], 0)
+        self.assertFalse(meter.average_snapshot(500)['partial'])
+        meter.finish(project_sources(states, 503), 503)
+        self.assertTrue(meter.average_snapshot(503)['partial'])
+        meter.finish(project_sources(states, 804), 804)
+        self.assertIsNone(meter.average_snapshot(804)['average_tps'])
+        self.assertTrue(meter.average_snapshot(804)['partial'])
+
+    def test_usage_average_deduplicates_and_retracts_older_receipts(self):
+        meter = ReceivedOutput(199)
+        states = {'a': frame([sample(tokens=300)], received=200.2),
+                  'b': frame([sample(tokens=300)], received=200.2)}
+        meter.receive(states, 200.2)
+        self.tick(meter, states, 201.1)
+        self.assertEqual(meter.average_snapshot(201.1)['average_tps'], 1)
+        # Retract a conflicting copied report even after its 60-second bar expires.
+        states['a'] = frame([sample(tokens=301)], received=270.2)
+        states['b'] = frame([sample(tokens=300)], received=270.2)
+        meter.receive(states, 270.2)
+        self.tick(meter, states, 271.1)
+        self.assertEqual(meter.average_snapshot(271.1)['output_tokens'], 0)
+        for state in states.values():
+            state['received_at'] = 271.2
+            state['packet']['samples'] = [sample(tokens=301)]
+        meter.receive(states, 271.2)
+        self.tick(meter, states, 272.1)
+        self.assertEqual(meter.average_snapshot(272.1)['output_tokens'], 301)
+        self.assertEqual(meter.average_snapshot(272.1)['average_tps'], 301 / 300)
+
+    def test_receipt_average_uses_exact_trailing_window_and_current_second(self):
+        meter = ReceivedOutput(0)
+        states = {'a': frame([sample(tokens=15000)], received=200.2)}
+        meter.receive(states, 200.2)
+        # A receipt counts immediately, without waiting for the bar's next tick.
+        self.assertEqual(meter.average_snapshot(200.2)['output_tokens'], 15000)
+        self.assertEqual(meter.average_snapshot(200.2)['average_tps'], 50)
+        self.assertEqual(meter.average_snapshot(500.1)['output_tokens'], 15000)
+        self.assertEqual(meter.average_snapshot(500.3)['output_tokens'], 0)
+        # No rounding to whole seconds admits this expired receipt again.
+        self.assertEqual(meter.average_snapshot(501)['output_tokens'], 0)
+
+    def test_receipt_average_is_not_a_mean_of_generation_speed_readings(self):
+        meter = ReceivedOutput(199)
+        states = {'host': frame([sample(tokens=15000, start=-900)], received=200.2)}
+        self.assertAlmostEqual(project_sources(states, 200.2)['total_tps'], 15)
+        meter.receive(states, 200.2)
+        self.assertEqual(meter.average_snapshot(200.2)['average_tps'], 50)
+        self.assertEqual(self.tick(meter, states, 201.1)[-1]['tokens'], 15000)
+
+    def test_continuous_receipt_pace_does_not_require_high_generation_readings(self):
+        meter = ReceivedOutput(0)
+        for received in (60.2, 120.2, 180.2):
+            key = 'response-' + str(received)
+            states = {'host': frame([sample(key, tokens=6000, start=-300)], received=received)}
+            self.assertAlmostEqual(project_sources(states, received)['total_tps'], 15)
+            meter.receive(states, received)
+            self.tick(meter, states, received + 1)
+        # Repeated batches sustain this value; it is not just a one-second pulse.
+        self.assertEqual(meter.average_snapshot(180.3)['average_tps'], 60)
+        self.assertEqual(meter.average_snapshot(360.3)['average_tps'], 40)
+
+    def test_history_and_usage_average_share_deduplicated_receipts(self):
+        from meter_history import MeterHistory
+        meter, history = ReceivedOutput(0), MeterHistory()
+        wall = 1791396000
+        for second in range(1, 301):
+            samples = [sample('batch-' + str(second), tokens=6000, start=-300)] if second in (30, 90, 180) else []
+            states = {'a': frame(samples, received=second + .2),
+                      'copy': frame(samples, received=second + .2)}
+            meter.receive(states, second + .2)
+            now = second + 1
+            meter.finish(project_sources(states, now), now)
+            history.observe_receipts(meter.history_updates(now, wall + now), now=wall + now)
+        usage = meter.average_snapshot(301)
+        bars = history.snapshot(600, wall + 301)['receipt_buckets']
+        self.assertEqual(usage['output_tokens'], 18000)
+        self.assertEqual(sum(row['output_tokens'] or 0 for row in bars), 18000)
+        self.assertEqual(sum((row['receipt_tps'] or 0) * 5 for row in bars), 18000)
+        self.assertEqual(usage['average_tps'], 60)
+        self.assertGreaterEqual(max(row['receipt_tps'] or 0 for row in bars), 60)
+        self.assertEqual(sum(row['output_tokens'] for row in meter.history_updates(301, wall + 301)), 0)
+
+    def test_receipt_idle_is_observed_even_when_generation_is_waiting(self):
+        meter = ReceivedOutput(199)
+        states = {'a': frame([], received=200.2)}
+        states['a']['packet']['pending_sessions'] = [{'session_key': 'session', 'runtime': 'codex',
+            'provider': 'OpenAI', 'model': 'Example', 'status': 'awaiting_usage'}]
+        self.assertIsNone(project_sources(states, 201.1)['total_tps'])
+        self.assertEqual(self.tick(meter, states, 201.1)[-1]['tokens'], 0)
+        self.assertEqual(meter.average_snapshot(201.1)['average_tps'], 0)
+        self.assertTrue(meter.average_snapshot(201.1)['partial'])
+
+    def test_receipt_history_corrections_reuse_original_wall_time(self):
+        meter = ReceivedOutput(199)
+        states = {'a': frame([sample(tokens=100)], received=200.2)}
+        meter.receive(states, 200.2)
+        self.tick(meter, states, 201.1)
+        first = next(row for row in meter.history_updates(201.1, 1001.1) if row['output_tokens'])
+        states['b'] = frame([sample(tokens=101)], received=201.2)
+        meter.receive(states, 201.2)
+        self.tick(meter, states, 202.1)
+        correction = next(row for row in meter.history_updates(202.1, 4602.1) if row['start'] == first['start'])
+        self.assertEqual(correction['output_tokens'], 0)
+        self.assertTrue(correction['partial'])
 
 
 class WorkerTests(unittest.TestCase):
