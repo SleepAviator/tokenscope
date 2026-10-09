@@ -79,7 +79,7 @@ assert.deepEqual(matchingModels(modelNames,'CODE'), ['Atlas Code']);
 assert.deepEqual(matchingModels(modelNames,''), ['Atlas Code','Cedar Think','Orbit Local']);
 assert.deepEqual(matchingModels(modelNames,'not found'), []);
 assert.deepEqual(matchingModels(modelNames,'o'), ['Atlas Code','Orbit Local']);
-const {filterUsageRows,summarizeSessions,sessionDetails,sessionMatrix,jetColor} = require('./session_usage.js');
+const {filterUsageRows,summarizeSessions,sessionDetails,sessionMatrix,jetColor,usageModelLabel} = require('./session_usage.js');
 const base = {session_key:'one',host:'workstation',app:'Codex',requests:1,fresh_input_tokens:10,cache_read_tokens:20,cache_creation_tokens:5,output_tokens:15,tokens:50,cost_usd:'0.25'};
 const rows = [
   {...base,date:'2026-01-31',model:'a'},
@@ -89,6 +89,28 @@ const rows = [
   {...base,date:'2026-02-02',model:'a',app:'Claude Code'},
 ];
 const all = new Set(['a','b']);
+const reviewRows=[rows[1],{...rows[1],model:'codex-auto-review',tps_count:1,tps_sum:30,tps_max:30}];
+const reviewSession=summarizeSessions(reviewRows)[0];
+assert.deepEqual(reviewSession.models,['a','codex-auto-review']);
+assert.equal(usageModelLabel(reviewSession.models),'a');
+assert.equal(reviewSession.tokens,100);
+assert.equal(reviewSession.requests,2);
+assert.equal(reviewSession.cost,.5);
+assert.equal(reviewSession.output_tokens,30);
+assert.equal(reviewSession.tps_avg,30);
+assert.equal(reviewSession.tps_max,30);
+const reviewDetail=sessionDetails(reviewRows,JSON.stringify(['workstation','Codex','one']));
+assert.equal(reviewDetail.daily[0].tokens,100);
+assert.equal(usageModelLabel(reviewDetail.daily[0].models),'a');
+assert.equal(reviewDetail.models.reduce((sum,group)=>sum+group.tokens,0),100);
+assert.ok(reviewDetail.models.some(group=>group.value==='codex-auto-review'),'model breakdown retains exact accounting');
+const onlyReview=filterUsageRows(reviewRows,'','',new Set(['codex-auto-review']));
+assert.equal(summarizeSessions(onlyReview)[0].tokens,50,'display hiding must not remove selected review usage');
+assert.equal(usageModelLabel(summarizeSessions(onlyReview)[0].models),'—');
+assert.equal(usageModelLabel([]),'—');
+assert.equal(usageModelLabel(['unknown']),'unknown');
+assert.equal(usageModelLabel(['codex-auto-review-extra']),'codex-auto-review-extra','only the exact internal label is hidden');
+assert.deepEqual(reviewSession.models,['a','codex-auto-review'],'display must not mutate model identities');
 const rateRows=[
   {...base,date:'2026-09-01',model:'a',tps_count:2,tps_sum:80,tps_max:50},
   {...base,date:'2026-09-02',model:'b',tps_count:1,tps_sum:10,tps_max:10},

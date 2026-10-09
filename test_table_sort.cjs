@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
-const {sortTableRows}=require('./session_usage.js');
+const {sortTableRows,usageModelLabel}=require('./session_usage.js');
 
 const numeric=[[10],[2],[0],[1200],[null],[undefined],[NaN],[Infinity]];
 assert.deepEqual(sortTableRows(numeric,0,'ascending').slice(0,4),[[0],[2],[10],[1200]]);
@@ -36,7 +36,7 @@ const tables=tableIds.map((id,index)=>{
 const controls={'session-sort':{value:'tokens'}};
 for(const {body}of tables)controls[body.id]=body;
 let renderCalls=0;
-const context=vm.createContext({sortTableRows,document:{querySelectorAll:()=>tables.map(item=>item.table)},
+const context=vm.createContext({sortTableRows,usageModelLabel,document:{querySelectorAll:()=>tables.map(item=>item.table)},
   $:id=>controls[id],uiLocale:()=> 'en-US',t:value=>value,
   element:()=>({append(){}}),renderSessions(reset){assert.equal(reset,false);renderCalls++;vm.runInContext("updateTableHeaders($('session-body'))",context);}});
 const source=fs.readFileSync(__dirname+'/web.js','utf8');
@@ -76,6 +76,11 @@ const page=run("sortedTableItems($('session-body'),sessions,sessionSortValues).s
 assert.equal(page[0].cost,75);assert.equal(page[49].cost,26);
 run("tableSorts.set('session-body',{column:8,direction:'ascending'})");
 assert.equal(run("sortedTableItems($('session-body'),sessions,sessionSortValues).slice(0,50)[49].tokens"),49);
+context.reviewSession={...sessions[0],models:['codex-auto-review','Fictional']};
+assert.equal(run('sessionSortValues(reviewSession)[3]'),'Fictional','model sorting uses the same visible labels as the cell');
+context.reviewSession.models=['codex-auto-review'];
+assert.equal(run('sessionSortValues(reviewSession)[3]'),'—');
+assert.ok(!source.includes(".models.join(', ')"),'all session/project model lists must use the display-only formatter');
 assert.ok(source.indexOf('const groups=sortedTableItems(')<source.indexOf('for(const s of groups.slice(0,sessionLimit))'));
 assert.match(source,/group\.last,group\.host/,'selected activity sorts by its latest activity date');
 console.log('All 126 table headers, reverse order, numeric/date/text/null values, refresh state and full-population pagination passed.');

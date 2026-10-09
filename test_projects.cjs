@@ -1,5 +1,5 @@
 const assert=require('node:assert/strict');
-const {summarizeProjects,projectDetails,projectIdentity,filterUsageRows,withNativeTPS}=require('./session_usage.js');
+const {summarizeProjects,projectDetails,projectIdentity,filterUsageRows,withNativeTPS,usageModelLabel}=require('./session_usage.js');
 const make=overrides=>({date:'2026-01-01',host:'fictional',app:'Codex',session_key:'s1',session_title:'Fictional session',
   project_key:'one',project_name:'Shared name',model:'a',tokens:100,requests:2,cost_usd:'0.5',
   fresh_input_tokens:10,cache_read_tokens:60,cache_creation_tokens:10,output_tokens:20,
@@ -31,4 +31,23 @@ assert.equal(first.cache_read_tokens,240);assert.equal(first.output_tokens,80);
 const native=make({tps_count:0,tps_sum:0,tps_max:0,native_tps_count:1,native_tps_sum:25,native_tps_max:25});
 assert.equal(summarizeProjects(withNativeTPS([native]))[0].tps_avg,25);
 assert.equal(summarizeProjects(withNativeTPS([native],false))[0].tps_avg,null);
+const reviewRows=[make({}),make({model:'codex-auto-review'})];
+const reviewProject=summarizeProjects(reviewRows)[0];
+assert.equal(usageModelLabel(reviewProject.models),'a');
+assert.deepEqual(reviewProject.models,['a','codex-auto-review']);
+assert.equal(reviewProject.tokens,200);
+assert.equal(reviewProject.cost,1);
+assert.equal(reviewProject.requests,4);
+assert.equal(reviewProject.output_tokens,40);
+assert.equal(reviewProject.tps_count,4);
+assert.equal(reviewProject.tps_avg,30);
+assert.equal(reviewProject.tps_max,40);
+const reviewDetail=projectDetails(reviewRows,reviewProject.key);
+assert.equal(reviewDetail.daily[0].tokens,200);
+assert.equal(reviewDetail.sessions[0].tokens,200);
+assert.equal(usageModelLabel(reviewDetail.sessions[0].models),'a');
+assert.equal(reviewDetail.models.reduce((sum,group)=>sum+group.tokens,0),200);
+const onlyReview=summarizeProjects([reviewRows[1]])[0];
+assert.equal(onlyReview.tokens,100);
+assert.equal(usageModelLabel(onlyReview.models),'—');
 console.log('Project identity, coverage, filters, drill-down, counts and TPS tests passed.');

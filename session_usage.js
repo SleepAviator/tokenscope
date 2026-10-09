@@ -137,6 +137,10 @@ function chartBuckets(rows, hourly=false) {
 function sessionIdentity(row) {
   return JSON.stringify([row.host,row.app,row.session_key]);
 }
+// Hide the internal review label in model lists, never in usage accounting.
+function usageModelLabel(models) {
+  return models.filter(model=>model!=='codex-auto-review').join(', ')||'—';
+}
 // Check the complete snapshot, not a date/model-filtered fragment of a session.
 function visibleSessionRows(rows) {
   const rejected = new Set(summarizeSessions(rows)
@@ -292,4 +296,4 @@ function temporalRuns(dates, days) {
   });
   return runs;
 }
-if (typeof module !== 'undefined') module.exports = {sortTableRows,usageBarSegments,wrapSnapshotText,snapshotLegendLayout,projectIdentity,summarizeProjects,projectDetails,timeResolution,timeSlot,timeLabels,timeLabel,chartBuckets,withNativeTPS,availableUsageModels,visibleSessionRows,leaderPeriod,modelsInDateRange,matchingModels,filterUsageRows,sessionIdentity,summarizeSessions,sessionDetails,sessionMatrix,jetColor,temporalRuns,temporalColor};
+if (typeof module !== 'undefined') module.exports = {sortTableRows,usageBarSegments,wrapSnapshotText,snapshotLegendLayout,projectIdentity,summarizeProjects,projectDetails,timeResolution,timeSlot,timeLabels,timeLabel,chartBuckets,withNativeTPS,availableUsageModels,visibleSessionRows,leaderPeriod,modelsInDateRange,matchingModels,filterUsageRows,sessionIdentity,usageModelLabel,summarizeSessions,sessionDetails,sessionMatrix,jetColor,temporalRuns,temporalColor};

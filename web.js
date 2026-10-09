@@ -59,7 +59,7 @@ function usageSortValues(group,includeSessions=false){
   return [...values,group.cost,...responseRateValues(group)];
 }
 function sessionSortValues(group){
-  return [group.title||t('Title unavailable'),group.last,group.host+' / '+group.app,group.models.join(', '),...usageSortValues(group)];
+  return [group.title||t('Title unavailable'),group.last,group.host+' / '+group.app,usageModelLabel(group.models),...usageSortValues(group)];
 }
 function projectValues(group){
   return [...['fresh_input_tokens','cache_read_tokens','cache_creation_tokens','output_tokens','tokens','requests','sessions'].map(field=>group[field].toLocaleString(uiLocale())),money(group.cost),...responseRateCells(group)];
@@ -91,8 +91,8 @@ function renderProjects(){
     const tr=element('tr'),cell=element('td'),button=element('button',name(group),'session-open');
     button.type='button';button.setAttribute('aria-expanded',String(activeProjectKey===group.key));button.onclick=()=>open(group.key);
     cell.append(button);tr.append(cell);
-    for(const value of [group.host+' / '+group.apps.join(', '),group.models.join(', '),...projectValues(group)])tr.append(element('td',value));
-    tr.sortValues=[name(group),group.host+' / '+group.apps.join(', '),group.models.join(', '),...usageSortValues(group,true)];
+    for(const value of [group.host+' / '+group.apps.join(', '),usageModelLabel(group.models),...projectValues(group)])tr.append(element('td',value));
+    tr.sortValues=[name(group),group.host+' / '+group.apps.join(', '),usageModelLabel(group.models),...usageSortValues(group,true)];
     $('project-body').append(tr);
   }
   applyTableSort($('project-body'));
@@ -193,7 +193,7 @@ function renderSessionDetail(rows, groups){
   if(!detail.session || !groups.some(s=>sessionIdentity(s)===activeSessionKey)){activeSessionKey=null;panel.hidden=true;return;}
   const s=detail.session,title=s.title||t('Title unavailable');panel.hidden=false;
   $('session-detail-title').textContent=title;
-  $('session-detail-meta').textContent=`${s.host} / ${s.app} · ${s.first===s.last?s.first:`${s.first} → ${s.last}`} · ${s.models.join(', ')}`;
+  $('session-detail-meta').textContent=`${s.host} / ${s.app} · ${s.first===s.last?s.first:`${s.first} → ${s.last}`} · ${usageModelLabel(s.models)}`;
   $('session-detail-summary').replaceChildren();
   for(const [label,value] of [[t('Total tokens'),s.tokens.toLocaleString(uiLocale())],[t('Recorded estimated cost'),money(s.cost)],[t('Requests'),s.requests.toLocaleString(uiLocale())],[t('Fresh input'),s.fresh_input_tokens.toLocaleString(uiLocale())],[t('Cache read'),s.cache_read_tokens.toLocaleString(uiLocale())],[t('Cache write'),s.cache_creation_tokens.toLocaleString(uiLocale())],[t('Output'),s.output_tokens.toLocaleString(uiLocale())]]){
     const card=element('div');card.append(element('span',label),element('strong',value));$('session-detail-summary').append(card);
@@ -207,7 +207,7 @@ function renderSessionDetail(rows, groups){
   }
   applyTableSort(componentBody);
   const dateBody=$('session-date-body');dateBody.replaceChildren();
-  for(const day of detail.daily)appendCells(dateBody,[day.value,day.models.join(', '),...['fresh_input_tokens','cache_read_tokens','cache_creation_tokens','output_tokens','tokens','requests'].map(field=>day[field].toLocaleString(uiLocale())),money(day.cost),...responseRateCells(day)],[day.value,day.models.join(', '),...usageSortValues(day)]);
+  for(const day of detail.daily)appendCells(dateBody,[day.value,usageModelLabel(day.models),...['fresh_input_tokens','cache_read_tokens','cache_creation_tokens','output_tokens','tokens','requests'].map(field=>day[field].toLocaleString(uiLocale())),money(day.cost),...responseRateCells(day)],[day.value,usageModelLabel(day.models),...usageSortValues(day)]);
   applyTableSort(dateBody);
   const modelBody=$('session-model-body');modelBody.replaceChildren();
   for(const model of detail.models)appendCells(modelBody,[model.value,...['fresh_input_tokens','cache_read_tokens','cache_creation_tokens','output_tokens','tokens','requests'].map(field=>model[field].toLocaleString(uiLocale())),money(model.cost),...responseRateCells(model)],[model.value,...usageSortValues(model)]);
@@ -237,7 +237,7 @@ function renderSessions(resetLimit=true){
   if(hiddenRequests)$('session-coverage').textContent+=bilingual(` Hidden: ${hiddenRequests} zero-token, zero-cost Claude sessions with one request.`,` 已隐藏 ${hiddenRequests} 个仅有1次请求、零 Token、零费用的 Claude 会话。`);
   for(const s of groups.slice(0,sessionLimit)){
     const key=sessionIdentity(s),tr=element('tr');if(key===activeSessionKey)tr.className='session-active';const title=element('td'),open=element('button',s.title||t('Title unavailable'),'session-open');open.type='button';open.title=s.title||t('No saved conversation title matches this source record.');open.setAttribute('aria-expanded',String(key===activeSessionKey));open.onclick=()=>openSession(key);title.append(open);tr.append(title);
-    const values=[s.first===s.last?s.first:`${s.first} → ${s.last}`,`${s.host} / ${s.app}`,s.models.join(', '),
+    const values=[s.first===s.last?s.first:`${s.first} → ${s.last}`,`${s.host} / ${s.app}`,usageModelLabel(s.models),
       ...['fresh_input_tokens','cache_read_tokens','cache_creation_tokens','output_tokens','tokens','requests'].map(k=>s[k].toLocaleString(uiLocale())),money(s.cost),...responseRateCells(s)];
     tr.sortValues=sessionSortValues(s);
     for(const value of values)tr.append(element('td',value));$('session-body').append(tr);
