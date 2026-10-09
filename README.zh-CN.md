@@ -11,11 +11,11 @@
 
 **Python 驱动 · 无需前端构建 · MIT 开源**
 
-[体验动态演示](https://crear12.github.io/tokenscope/) · [快速开始](#快速开始) · [统计口径与局限](#统计口径与局限)
+[体验动态演示](https://sleepaviator.github.io/tokenscope/) · [快速开始](#快速开始) · [统计口径与局限](#统计口径与局限)
 
 </div>
 
-[![TokenScope：使用模拟数据展示每日 Token 用量、费用和月度领先模型](assets/demo-preview.png)](https://crear12.github.io/tokenscope/)
+[![TokenScope：使用模拟数据展示每日 Token 用量、费用和月度领先模型](assets/demo-preview.png)](https://sleepaviator.github.io/tokenscope/)
 
 *截图和在线演示均使用虚构数据。点击截图即可体验动态、可交互的看板。*
 
@@ -28,16 +28,19 @@
 | 功能 | 可以做什么 |
 | :--- | :--- |
 | **自适应时间粒度的用量与费用** | 用不同颜色的柱状图比较模型用量，用折线查看预估美元费用。单日按小时显示；较短日期范围根据图表宽度使用 1–12 小时时段，较长范围按日显示。会话热图使用相同时段。 |
-| **月度领先模型** | 在图中直接查看当月 Token 最多的模型、用量占比及该模型当月费用。 |
+| **随范围变化的领先模型** | 在图中查看所选单日、七天、完整月份或自定义范围内的领先模型、Token 占比及费用；全部日期显示每月领先模型。 |
 | **日期与模型筛选** | 缩小日期范围，选择一个或多个模型。 |
 | **会话热力图** | 纵轴为会话标题、横轴为日期，以自适应 jet 色阶显示 Token 用量。 |
 | **逐响应速度分析** | 比较最近7天、30天与全部历史的 TPS 和已记录的首 Token 延迟，查看每日方块热图、星期/小时规律及按模型统计，并显示可用计时样本数。 |
 | **macOS 菜单栏 TPS** | 汇总已配置机器和服务提供商的输出 TPS，并显示有贡献会话的平均 TPS 与覆盖缺口。 |
 | **会话详情** | 点击标题，展开 Token 构成、请求数、费用，以及按日期和模型划分的明细。 |
+| **跨机器项目汇总** | 合并路径相同的项目（支持云盘相对路径），查看模型、日期与会话明细。 |
+| **点击表头排序** | 每个表格的列标题均可排序，再次点击反向排序；数值按大小排列，会话先对完整列表排序再分页。 |
 | **本地与多机汇总** | 读取本机统计，或通过你自己的私有 SSH 配置读取远程机器。 |
-| **桌面版下载** | 从 GitHub Releases 下载 Windows x64、Linux x64 或 macOS Apple 芯片/Intel 独立版本。 |
+| **桌面打包** | 可构建 macOS、Windows、Linux 独立包；现有下载可能落后于源码，本次不发布新应用。 |
 | **可调刷新间隔** | 在网页中设置 5 秒至 10 分钟的刷新间隔，并按时钟边界执行。 |
-| **静态报告导出** | 生成 PNG/SVG 图表、CSV 表格以及 JSON/Markdown 汇总。 |
+| **静态报告导出** | 一键下载带模型颜色图例的图表 PNG，也可生成 PNG/SVG、CSV 以及 JSON/Markdown 汇总。 |
+| **可选私有历史** | 本地保存 28 天的数值分钟记录及长期每日汇总，原始数据库始终只读。 |
 
 实时网页仅需 **Python 标准库**，不需要 Node、数据库服务器或额外云账号。
 一条命令启动，Ctrl+C 退出；不会安装常驻系统服务。运行期间仍需要保持 Python 进程开启。
@@ -46,9 +49,9 @@
 
 网页顶部的 **语言 / Language** 可一键切换中文、英文，并记住选择。
 切换不会改变日期和模型筛选；模型名、来源名称、会话标题及美元费用保持原样。
-可直接分享[中文版演示](https://crear12.github.io/tokenscope/?lang=zh-CN)；英文链接使用 `?lang=en`。
+可直接分享[中文版演示](https://sleepaviator.github.io/tokenscope/?lang=zh-CN)；英文链接使用 `?lang=en`。
 
-[在线演示](https://crear12.github.io/tokenscope/)包含 **90 天、三个虚构模型、两个虚构数据源**。
+[在线演示](https://sleepaviator.github.io/tokenscope/)包含 **90 天、三个虚构模型、两个虚构数据源**。
 支持图表动画、重播、日期与模型筛选，并尊重系统的减少动态效果偏好。
 演示不会读取你的配置、数据库、会话文件或 SSH 设置。
 
@@ -66,26 +69,29 @@ python -m http.server 8877 --bind 127.0.0.1 --directory docs
 
 ### 桌面版应用
 
-从 [GitHub Releases](https://github.com/Crear12/tokenscope/releases) 下载适合系统的最新版本：
+**本次只更新源码与演示，不发布新的桌面版。**
+[GitHub Releases](https://github.com/SleepAviator/tokenscope/releases) 的现有下载较旧，
+不包含本文全部新功能。最新看板请使用下方 Python 源码启动方式。
+打包脚本也支持 Windows、Linux；可下载的平台取决于具体发布版本。
 
-- **macOS：** Apple 芯片下载 **TokenScope-macOS-arm64**，Intel 下载
-  **TokenScope-macOS-x86_64**。解压后将 `TokenScope.app` 移入“应用程序”并打开。
+- **macOS：** Apple 芯片选择 **macOS-arm64** 压缩包，Intel 选择
+  **macOS-x86_64** 压缩包。解压后将 `TokenScope.app` 移入“应用程序”并打开。
   应用同时启动看板和菜单栏计量器；关闭启动器窗口后仍继续运行，选择 **Stop and quit** 才会停止。
   可用 **Machine settings…** 编辑私有配置，保存在
   `~/Library/Application Support/TokenScope/`。看板快照和启动器的有界诊断日志仅保存在内存中。
-- **Windows x64：** 解压后双击 `launch-tokenscope.bat`。控制台会显示采集状态；
+- **Windows x64 打包版（如有提供）：** 解压后双击 `launch-tokenscope.bat`。控制台会显示采集状态；
   在控制台按 Ctrl+C 停止。配置保存在 `%APPDATA%\TokenScope\config.ini`，
   看板快照仅保存在内存中。
-- **Linux x64：** 解压 `.tar.gz` 后在终端运行 `./launch-tokenscope.sh`，
+- **Linux x64 打包版（如有提供）：** 解压 `.tar.gz` 后在终端运行 `./launch-tokenscope.sh`，
   先进入解压得到的 `TokenScope-Linux-x86_64` 文件夹。按 Ctrl+C 停止。
   配置使用 XDG 配置目录，默认为 `~/.config/tokenscope/`；看板快照仅保存在内存中。
   二进制在 Ubuntu 22.04 上构建，
   需要兼容的 glibc。
 
-macOS 应用和 Windows 可执行文件均未签名。macOS 首次打开可能显示警告；
-确认信任后，可在 Finder 中按住 Control 并点击应用，再选择“打开”。
-Windows SmartScreen 也可能对未签名程序发出警告。macOS Developer ID 签名/公证
-需要加入 Apple 付费开发者计划。公开仓库的 GitHub Actions 构建无需付费 GitHub 计划。
+现有桌面下载没有 Developer ID 签名/公证，macOS Gatekeeper 可能拦截，
+Windows SmartScreen 也可能对未签名程序发出警告。本次源码更新不修复或重新验证旧下载。
+遇到拦截时请使用 Python 源码运行，不要禁用系统安全保护。
+公开仓库的 GitHub Actions 构建无需付费 GitHub 计划。
 
 应用默认监听局域网，和 `python app.py` 一样没有登录验证或 TLS。仅在可信网络中使用；
 局域网其他设备可以查看看板并修改共享刷新间隔。
@@ -100,6 +106,19 @@ macOS 菜单栏以两行紧凑显示，上行为总速率 **`120 t/s`**，下行
 启动器中的 **Show menu bar TPS meter** 可显示或隐藏计量器，并记住选择；
 从 Dock 重新打开 TokenScope 即可再次显示启动器。
 不会安装登录时自动启动的服务，也不会新增网页面板。
+
+当前源码中的 macOS 启动器在 `~/Library/Application Support/TokenScope/meter-history`
+保存 28 天的分钟数值记录，每 15 分钟及正常退出时写入；秒级和近期五秒级数据仍仅在内存中。
+记录不含消息正文、会话标识、模型或来源路径；缺少覆盖的时段保持为空，不按零速率填补。
+菜单栏实时速率只统计输出；历史 Token 用量另行统计输入、缓存与输出，缓存只计一次。
+
+`~/Library/Application Support/TokenScope/daily-usage` 另存长期每日用量，
+首次采集后、每 24 小时及正常退出时保存。每个私有 JSON 只含对应日期的机器/应用/模型、
+Token、请求数、记录费用和采集时间，不含会话身份、正文或原始路径。
+重启后可用它显示离线机器的每日总量，并标记归档覆盖和数据年龄；不能恢复小时或会话明细。
+重连会替换重新覆盖的日期，不与新数据重复叠加；来源已不再保留的旧日期继续使用归档。
+离线归档中的复制记录在重连前无法重新去重；崩溃可能丢失上次检查点之后的数据。
+这些汇总不是原始记录备份，也不属于公开演示或下载。
 
 计量器被动增量读取各个本地/SSH 数据源的 Codex、Claude 原生日志，以及 CC-Switch
 近期有计时的请求，不限制服务提供商。远程探针通过持久 SSH 连接只读运行，无需安装远程代理。
@@ -163,6 +182,11 @@ python app.py --live-meter --config config.ini
 紧凑显示参考 [Token Meter](https://github.com/splunk/token-meter)，MIT 授权声明见
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
+源码版可传入 `--meter-history /private/history-folder` 和
+`--daily-archive /private/daily-usage-folder` 启用私有历史，原始来源保持只读。
+`GET /api/live/history?range=3600` 仅供本机回环访问，支持 10 分钟至 28 天的指定范围；
+旧分钟级数值明确标记为粗粒度，不编造更细的 Token 到达时间。
+
 Codex 原生日志 TPS 估算默认开启。在单会话区域取消勾选
 **包含 Codex 原生日志 TPS 估算**即可关闭显示，选择保存在本浏览器。
 如需停止某台机器的日志计时扫描，在私有 INI 的对应 `[source:...]`
@@ -176,7 +200,7 @@ Codex 原生日志 TPS 估算默认开启。在单会话区域取消勾选
 需要 Python 3.9+，以及已有的 CC-Switch 数据库。
 
 ```sh
-git clone https://github.com/Crear12/tokenscope.git
+git clone https://github.com/SleepAviator/tokenscope.git
 cd tokenscope
 cp config.example.ini config.ini
 python app.py
@@ -201,13 +225,14 @@ python app.py --host 127.0.0.1 --port 8765 --interval 300 --config config.ini
 启动后立即采集，随后按本机时钟边界刷新。网页允许设置 5–600 秒；300 秒对应每小时
 的 :00、:05、:10 等时刻。正在采集时会跳过新的触发点，不叠加采集任务。
 关闭浏览器不会停止采集，Ctrl+C 才会停止进程。日期和模型筛选仅影响当前浏览器。
-月度领先模型及费用随筛选重新计算，支持不完整月份及并列情况。
+领先模型及费用随筛选重新计算：单日按天、七天按周、完整月份按月；其他明确范围按所选
+区间汇总，即使跨月也不拆分。未限定日期时每月分别显示，支持并列情况。
 
 看板数据及每台机器最新成功的统计快照仅保存在内存中；刷新不会生成临时 CSV 或看板缓存文件。
 macOS 启动器的服务器诊断日志也只在内存中保留最后 64 KiB。机器断开连接或采集失败时，
 同一次运行中保留该机器的上次结果，并明确标记为过期；其他机器继续刷新。
 没有成功快照的机器显示为不可用，合计覆盖不完整。重新连接后会替换快照并清除警告。
-重启会清空内存快照并重新采集，离线机器须等到重新连接后才有数据。
+重启会清空内存快照并重新采集；启用每日归档时先恢复每日总量，否则离线机器须等到重连。
 已有缓存文件和导出不会被删除。
 可以显式传入 `--cache PATH` 在启动时只读加载已有快照，该文件不会被重写。
 采集器只读取现有 CC-Switch 数据库和原生日志；TokenScope 不创建数据库，也不修改这些数据源。
@@ -224,7 +249,8 @@ macOS 启动器的服务器诊断日志也只在内存中保留最后 64 KiB。�
 ## 会话用量与详情
 
 勾选 **Show per-session usage** 显示热力图和表格，取消勾选可隐藏它们，不改变筛选条件。
-表格可按 Token、预估费用或最近活动排序；初始显示 50 条，可继续展开。
+每个表格均可点击任意列标题排序，再次点击反向排序；会话对完整匹配列表排序后再分页，
+初始显示 50 条，可继续展开。原有快捷排序选择器仍可使用。
 
 会话按「机器 + 应用 + 会话身份」分组，**标题相同不会合并**。
 先应用日期、模型筛选，再汇总会话。因此跨多天的会话显示的是选中日期内的用量，
@@ -242,8 +268,9 @@ macOS 启动器的服务器诊断日志也只在内存中保留最后 64 KiB。�
 标题读取自本地保存的 Codex 名称或 Claude Code 标题。支持 Claude 内联标题事件、
 每个会话的 `custom-title.json`，以及 Claude / Claude-3p 桌面元数据。
 当 CC-Switch 使用请求级会话 ID 时，通过 `request_id = session:<message.id>`
-精确关联 Claude 日志中的会话 ID。只使用唯一匹配，不按时间猜测；无法匹配或存在歧义时
-保持原样。映射不改变 Token 与费用统计，不导出消息正文。
+精确关联 Claude 日志中的会话 ID。唯一精确匹配，或多个精确候选均有同一个保存标题时，
+可以使用该标题；缺少标题或标题冲突时保持未解析。不按时间猜测，原始用量会话身份不变。
+映射不改变 Token 与费用统计，不导出消息正文。
 
 找不到保存的标题时显示 **Title unavailable**，不会自动生成摘要或使用消息内容代替。
 可选的 `codex_home`、`claude_projects` 数据源设置用于指定元数据位置。
@@ -299,6 +326,7 @@ python -m unittest discover -s . -p 'test_*.py'
 
 可以提交源码、测试、说明文档、依赖列表、示例配置和公开模拟演示。
 **不要提交真实配置、数据库、生成结果、私人用量截图、SSH 文件、凭据或会话日志。**
+私有 `meter-history/` 分钟记录和 `daily-usage/` 每日归档也必须留在 Git 之外。
 
 数据库读取采用字段白名单，不导出 Provider 设置、凭据或提示词。
 标题解析会读取日志中的标识和保存的标题；汇总结果仍会暴露用量、来源名称及会话标题，不是匿名数据。
@@ -312,6 +340,8 @@ python -m unittest discover -s . -p 'test_*.py'
 app.py              前台网页服务与刷新调度
 collect.py          只读 CC-Switch 采集与会话关联
 update.py           统计口径、汇总与静态图表
+meter_history.py    可选私有分钟记录及近期内存数据
+daily_archive.py    可选私有长期每日汇总
 web.*               实时网页与演示共用的界面
 session_usage.js    会话汇总、热力图与详情计算
 config.example.ini  仅含本地默认值的公开配置模板

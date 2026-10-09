@@ -83,11 +83,11 @@ def build():
     demo_style_version = hashlib.sha256((destination / 'demo.css').read_bytes()).hexdigest()[:12]
     page = page.replace('<script defer src="/web.js"></script>',
                         f'<link rel="stylesheet" href="demo.css?v={demo_style_version}"><script defer src="demo-data.js"></script><script defer src="web.js"></script>')
-    page = page.replace('<body><main>', '<body><main><nav class="demo-nav"><a href="https://github.com/Crear12/tokenscope">◈ TokenScope</a><span class="demo-badge">SYNTHETIC DEMO</span><a href="https://github.com/Crear12/tokenscope#quick-start">Get the code ↗</a></nav>')
+    page = page.replace('<body><main>', '<body><main><nav class="demo-nav"><a href="https://github.com/SleepAviator/tokenscope">◈ TokenScope</a><span class="demo-badge">SYNTHETIC DEMO</span><a href="https://github.com/SleepAviator/tokenscope#quick-start">Get the code ↗</a></nav>')
     page = page.replace('<h1>Token usage</h1>', '<p class="eyebrow">YOUR MODELS. ONE CLEAR VIEW.</p><h1>Tokens tell a story.<br>See the whole picture.</h1>')
     page = page.replace('id="show-sessions" type="checkbox"', 'id="show-sessions" type="checkbox" checked')
     page = page.replace('<div class="actions"><label>Refresh every', '<div class="actions live-controls" hidden><label>Refresh every', 1)
-    page = page.replace('</header>', '<div class="demo-actions"><button id="replay">↻ Replay animation</button><a href="https://github.com/Crear12/tokenscope">View on GitHub ↗</a></div></header>', 1)
+    page = page.replace('</header>', '<div class="demo-actions"><button id="replay">↻ Replay animation</button><a href="https://github.com/SleepAviator/tokenscope">View on GitHub ↗</a></div></header>', 1)
     page = page.replace('LAN viewers can change the shared refresh interval. Date and model filters affect only your browser. No requests overlap; refreshes run at clock-aligned boundaries while this command is running.',
                         'TokenScope · MIT licensed · This public demo contains no real usage. All interactions run in your browser. Animation respects reduced-motion preferences. Run the Python app locally to collect your own statistics.')
     (destination / 'index.html').write_text(page)

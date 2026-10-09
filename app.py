@@ -19,9 +19,11 @@ import sys
 import threading
 import time
 import webbrowser
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from live_meter import LiveMeter
+from meter_history import MeterHistory
+from daily_archive import DailyArchive
 
 ROOT = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
 APP_SUPPORT = Path.home() / 'Library' / 'Application Support' / 'TokenScope'
@@ -125,7 +127,7 @@ def public_snapshot(result):
             'caveats': [s for s in summary['caveats'] if not s.startswith('TPS')]}
 
 
-def collect_snapshot(config, fingerprint, previous=None):
+def collect_snapshot(config, fingerprint, previous=None, include_history=False):
     """Keep one successful source snapshot per machine in this worker's RAM."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import sqlite3
@@ -150,7 +152,15 @@ def collect_snapshot(config, fingerprint, previous=None):
                 failures.append(name)
                 print(f'{name}: refresh unavailable; keeping last successful data. {error}', file=sys.stderr, flush=True)
     sources = [(name, snapshots[name]) for name, _ in items if name in snapshots]
-    data = public_snapshot(aggregate(sources))
+    aggregation = aggregate(sources, meter_history=include_history)
+    data = public_snapshot(aggregation)
+    for name, snapshot in sources:
+        # Include deduplicated-away dates so a reconnect can replace an old
+        # archive with zero instead of resurrecting copied requests.
+        data['sources'][name]['covered_dates'] = sorted(
+            {datetime.fromtimestamp(row['created_at']).date().isoformat()
+             for row in snapshot['proxy_request_logs']} |
+            {row['date'] for row in snapshot['usage_daily_rollups']})
     old = previous.get('data') or {}
     legacy = []
     for name, _ in items:
@@ -173,7 +183,16 @@ def collect_snapshot(config, fingerprint, previous=None):
                         for name, _ in items if name in failures]
     if legacy:
         data['warnings'].append('Older cached data retained for offline sources; cross-machine deduplication cannot be rechecked until they reconnect.')
-    return {'config_hash': fingerprint, 'data': data, 'source_snapshots': snapshots}
+    state = {'config_hash': fingerprint, 'data': data, 'source_snapshots': snapshots}
+    if include_history:
+        history = aggregation['meter_usage']
+        history['partial'] = bool(failures or legacy)
+        stamps = [datetime.fromisoformat(s['collected_at'].replace('Z', '+00:00')).timestamp()
+                  for _, s in sources]
+        if stamps:
+            history['end'] = min(history['end'], int(max(stamps) // 60) * 60 + 60)
+        state['history_usage'] = history
+    return state
 
 
 MAX_WORKER_FRAME = 256 * 1024 * 1024
@@ -209,7 +228,7 @@ def read_worker_frame(stream):
     return value
 
 
-def memory_worker(config, cache=None):
+def memory_worker(config, cache=None, include_history=False):
     """Persistent cancellable producer; retained history and results never hit disk."""
     fingerprint = hashlib.sha256(config.read_bytes()).hexdigest()
     previous = json.loads(cache.read_text(encoding='utf-8')) if cache and cache.exists() else None
@@ -221,8 +240,11 @@ def memory_worker(config, cache=None):
             if hashlib.sha256(config.read_bytes()).hexdigest() != fingerprint:
                 raise ValueError('Configuration changed; restart the server')
             with redirect_stdout(sys.stderr):
-                state = collect_snapshot(config, fingerprint, previous)
-            write_worker_frame(output, {'config_hash': fingerprint, 'data': state['data']})
+                state = collect_snapshot(config, fingerprint, previous, include_history)
+            frame = {'config_hash': fingerprint, 'data': state['data']}
+            if include_history:
+                frame['history_usage'] = state['history_usage']
+            write_worker_frame(output, frame)
             previous = state
         except (OSError, RuntimeError, ValueError) as error:
             print(f'Historical refresh failed: {error}', file=sys.stderr, flush=True)
@@ -251,8 +273,10 @@ def stop_process(process):
 
 
 class Collector:
-    def __init__(self, config, interval, cache=None):
+    def __init__(self, config, interval, cache=None, history=None):
         self.config, self.cache = config, cache
+        self.history = history
+        self.archive = None
         self.fingerprint = hashlib.sha256(config.read_bytes()).hexdigest()
         self.interval = interval_value(interval)
         self.lock = threading.RLock()
@@ -290,6 +314,8 @@ class Collector:
                     if not getattr(sys, 'frozen', False):
                         command.append(str(ROOT / 'app.py'))
                     command += ['--worker', '--config', str(self.config)]
+                    if self.history:
+                        command.append('--history-usage')
                     if self.cache:
                         command += ['--cache', str(self.cache)]
                     self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -328,6 +354,8 @@ class Collector:
                 if 'error' not in result and (result.get('config_hash') != self.fingerprint or
                                              not isinstance(result.get('data'), dict)):
                     raise ValueError('Invalid dashboard worker result')
+                if 'error' not in result and self.history and not isinstance(result.get('history_usage'), dict):
+                    raise ValueError('Missing dashboard history accounting')
                 with self.lock:
                     if process is not self.process or self.stop.is_set():
                         return
@@ -337,7 +365,9 @@ class Collector:
                     if 'error' in result:
                         self.error = 'Collection failed. Previous data retained; see diagnostics.'
                     else:
-                        self.data = result['data']
+                        if self.history:
+                            self.history.account(result['history_usage'])
+                        self.data = self.archive.merge(result['data']) if self.archive else result['data']
                         self.version += 1
                         self.error = None
         except (OSError, RuntimeError, ValueError) as error:
@@ -356,9 +386,11 @@ class Collector:
 
     def status(self):
         with self.lock:
+            archive = self.archive.status() if self.archive else {'enabled': False}
             return {'refreshing': self.collecting, 'interval': self.interval, 'storage': 'memory',
+                    'daily_archive': archive,
                     'next_run': self.next_run, 'started_at': self.started_at,
-                    'error': self.error, 'version': self.version, 'csrf': self.csrf,
+                    'error': self.error or archive.get('error'), 'version': self.version, 'csrf': self.csrf,
                     'server_time': time.time(), 'timezone': str(datetime.now().astimezone().tzinfo)}
 
     def loop(self):
@@ -436,7 +468,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.valid_host():
             return self.respond(403, {'error': 'Use a LAN or Tailscale IP address, or localhost'})
-        path = urlsplit(self.path).path
+        url = urlsplit(self.path)
+        path = url.path
         if path in ASSETS:
             filename, kind = ASSETS[path]
             return self.respond(200, (ROOT / filename).read_bytes(), kind)
@@ -450,6 +483,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(403, {'error': 'Live meter is available only over loopback'})
             meter = getattr(self.server, 'live_meter', None)
             return self.respond(200, meter.snapshot() if meter else disabled_live_snapshot())
+        if path == '/api/live/history':
+            if not self.loopback_peer():
+                return self.respond(403, {'error': 'Meter history is available only over loopback'})
+            history = getattr(self.server, 'meter_history', None)
+            if history is None:
+                return self.respond(503, {'error': 'Meter history is disabled'})
+            try:
+                query = parse_qs(url.query, strict_parsing=True)
+                if set(query) != {'range'} or len(query['range']) != 1:
+                    raise ValueError('Specify one history range')
+                period = int(query['range'][0])
+                return self.respond(200, history.snapshot(period))
+            except ValueError:
+                return self.respond(400, {'error': 'Unsupported meter history range'})
         self.respond(404, {'error': 'Not found'})
 
     def do_POST(self):
@@ -492,23 +539,41 @@ def main():
                         help='Open the local dashboard in the default browser after startup')
     parser.add_argument('--live-meter', action='store_true',
                         help='Monitor live output TPS for the native menu bar (loopback API only)')
+    parser.add_argument('--meter-history', type=Path,
+                        help='Save numeric minute aggregates here every 15 minutes; retain 28 days')
+    parser.add_argument('--daily-archive', type=Path,
+                        help='Retain lifetime daily totals here; checkpoint initially, daily and on clean quit')
     parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--history-usage', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
     config = args.config.expanduser().resolve()
     cache = args.cache.expanduser().resolve() if args.cache else None
     if args.worker:
-        memory_worker(config, cache)
+        memory_worker(config, cache, include_history=args.history_usage)
         return
     collector = Collector(config, args.interval, cache)
     server = None
     live_meter = None
+    history = None
+    archive = None
     collector_started = False
     timer = None
     try:
         server = ThreadingHTTPServer((args.host, args.port), Handler)
         server.daemon_threads = True
         server.collector = collector
-        live_meter = LiveMeter(config) if args.live_meter else None
+        if args.daily_archive:
+            archive = DailyArchive(args.daily_archive.expanduser(), config)
+            collector.archive = archive
+            if collector.data is None:
+                collector.data = archive.startup_snapshot()
+                if collector.data:
+                    collector.version = 1
+        if args.meter_history:
+            history = MeterHistory(args.meter_history.expanduser())
+            collector.history = history
+        server.meter_history = history
+        live_meter = LiveMeter(config, history=history) if args.live_meter else None
         server.live_meter = live_meter
         collector.thread.start()
         collector_started = True
@@ -536,8 +601,16 @@ def main():
                 if collector_started:
                     collector.close()
             finally:
-                if server:
-                    server.server_close()
+                try:
+                    if history:
+                        history.close()
+                finally:
+                    try:
+                        if archive:
+                            archive.close()
+                    finally:
+                        if server:
+                            server.server_close()
         print('Stopped.', flush=True)
 
 

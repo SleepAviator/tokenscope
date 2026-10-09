@@ -91,6 +91,30 @@ def validate_packet(packet):
             'coverage': {'status': status, 'issues': [_label(s) for s in issues]}}
 
 
+def _canonical_responses(candidates, source_order, telemetry_sessions=()):
+    """Share response-copy and session-authority rules between rate and arrival views."""
+    selected, conflicts = [], []
+    telemetry_sessions = set(telemetry_sessions) | {
+        sample['session_key'] for copies in candidates.values() for _, sample, _ in copies
+        if sample['runtime'] == 'codex' and sample['basis'] == 'codex_otel'
+        and sample['session_key'] is not None}
+    for key, copies in candidates.items():
+        copies = [(name, sample, value) for name, sample, value in copies
+                  if sample['runtime'] != 'codex' or sample['basis'] == 'codex_otel'
+                  or sample['session_key'] not in telemetry_sessions]
+        if not copies:
+            continue
+        identities = {sample['session_key'] for _, sample, _ in copies if sample['session_key'] is not None}
+        if (len({(sample['runtime'], sample['output_tokens']) for _, sample, _ in copies}) != 1 or
+                len(identities) > 1):
+            conflicts.append((key, [name for name, _, _ in copies]))
+            continue
+        selected.append(min(copies, key=lambda c: (
+            0 if c[1]['basis'] == 'codex_otel' else 2 if 'proxy' in c[1]['basis'].lower() else 1,
+            not bool(c[1]['session_key']), source_order[c[0]])))
+    return selected, conflicts
+
+
 def project_sources(states, now):
     """Project one consistent window using source-relative ages, not host clock sync."""
     sources, pending, issues, candidates = [], [], [], {}
@@ -128,29 +152,12 @@ def project_sources(states, now):
     session_groups = {}
     unattributed = False
     source_by_name = {s['name']: s for s in sources}
-    telemetry_sessions = {sample['session_key'] for copies in candidates.values() for _, sample, _ in copies
-                          if sample['runtime'] == 'codex' and sample['basis'] == 'codex_otel'
-                          and sample['session_key'] is not None}
-    for copies in candidates.values():
-        # A saved log can be synchronized to another source machine. OTel and
-        # that copy may have no joinable response ID, so apply session authority
-        # across sources as well as inside each reader.
-        copies = [(name, sample, tps) for name, sample, tps in copies
-                  if sample['runtime'] != 'codex' or sample['basis'] == 'codex_otel'
-                  or sample['session_key'] not in telemetry_sessions]
-        if not copies:
-            continue
-        identities = {sample['session_key'] for _, sample, _ in copies if sample['session_key'] is not None}
-        if (len({(sample['runtime'], sample['output_tokens']) for _, sample, _ in copies}) != 1 or
-                len(identities) > 1):
-            partial = True
-            for name, _, _ in copies:
-                source_by_name[name]['issues'].append('Conflicting copies of a response excluded')
-            continue
-        # Exact copies count once; explicit response boundaries outrank proxies.
-        name, sample, tps = min(copies, key=lambda c: (0 if c[1]['basis'] == 'codex_otel'
-                                                     else 2 if 'proxy' in c[1]['basis'].lower() else 1,
-                                                    not bool(c[1]['session_key']), list(states).index(c[0])))
+    selected, conflicts = _canonical_responses(candidates, {name: i for i, name in enumerate(states)})
+    for _, names in conflicts:
+        partial = True
+        for name in names:
+            source_by_name[name]['issues'].append('Conflicting copies of a response excluded')
+    for name, sample, tps in selected:
         source_by_name[name]['total_tps'] += tps
         session = sample['session_key']
         if session is None:
@@ -187,6 +194,121 @@ def project_sources(states, now):
             'issues': list(dict.fromkeys(issues))}
 
 
+class ReceivedOutput:
+    """Count new usage-report deltas at receipt time; keep sixty one-second bins in RAM.
+
+    Readers already exclude startup replay and historical imports. Retained samples
+    are cumulative per response, so repeated heartbeats and copies add no tokens.
+    This measures reported output arriving, not unobserved network-stream chunks.
+    """
+    def __init__(self, now):
+        self.seconds, self.responses, self.telemetry_sessions = {}, {}, {}
+        self.next_second = math.floor(now)
+        self.last_tick = now
+        self.started_at = now
+
+    def _second(self, second):
+        return self.seconds.setdefault(second, {'tokens': 0, 'available': False, 'partial': True})
+
+    def _exclude(self, response, reason='conflict'):
+        if not response['excluded']:
+            for second, delta in response['arrivals']:
+                if second in self.seconds:
+                    self.seconds[second]['tokens'] -= delta
+                    self.seconds[second]['partial'] = True
+                    self.seconds[second]['excluded'] = True
+        if reason == 'native_authority':
+            response['arrivals'].clear()
+        response['excluded'] = reason
+
+    def receive(self, states, now):
+        candidates = {}
+        for name, state in states.items():
+            packet, received = state.get('packet'), state.get('received_at')
+            if packet is None or now - received >= HEARTBEAT_TIMEOUT:
+                continue
+            for sample in packet['samples']:
+                if sample['end'] < packet['sampled_at'] - WINDOW_SECONDS:
+                    continue
+                candidates.setdefault(sample['event_key'], []).append((name, sample, received))
+                if sample['runtime'] == 'codex' and sample['basis'] == 'codex_otel' and sample['session_key']:
+                    self.telemetry_sessions[sample['session_key']] = now
+        # A later OTel copy may use a different response ID. Retract the native
+        # copy from retained bars before giving that session one authority.
+        for response in self.responses.values():
+            if (not response['excluded'] and response['runtime'] == 'codex' and
+                    response['basis'] != 'codex_otel' and response['session'] in self.telemetry_sessions):
+                self._exclude(response, 'native_authority')
+        selected, conflicts = _canonical_responses(candidates, {name: i for i, name in enumerate(states)},
+                                                  self.telemetry_sessions)
+        for key, _ in conflicts:
+            previous = self.responses.get(key)
+            if previous:
+                self._exclude(previous)
+                previous['last_seen'] = now
+            else:
+                self.responses[key] = dict(tokens=0, runtime=None, session=None, basis=None,
+                                           arrivals=[], excluded='conflict', last_seen=now)
+        for _, sample, received in selected:
+            key = sample['event_key']
+            previous = self.responses.setdefault(key, dict(tokens=0, runtime=sample['runtime'],
+                session=sample['session_key'], basis=sample['basis'], arrivals=[], excluded=False, last_seen=now))
+            previous['last_seen'] = now
+            if previous['excluded'] == 'native_authority' and sample['basis'] == 'codex_otel':
+                previous.update(tokens=0, basis='codex_otel', excluded=False)
+            if previous['runtime'] is None:
+                previous.update(runtime=sample['runtime'], session=sample['session_key'], basis=sample['basis'])
+            if previous['excluded'] == 'native_authority':
+                self._second(math.floor(received))['excluded'] = True
+                continue
+            if previous['runtime'] != sample['runtime'] or (previous['session'] and sample['session_key']
+                                                          and previous['session'] != sample['session_key']):
+                self._exclude(previous)
+                self._second(math.floor(received))['excluded'] = True
+                continue
+            if previous['excluded'] == 'conflict':
+                # As copied cumulative reports catch up, restore their original
+                # receipt bins; reconciliation is not another token delivery.
+                previous['excluded'] = False
+                for second, delta in previous['arrivals']:
+                    if second in self.seconds:
+                        self.seconds[second]['tokens'] += delta
+            if not previous['session']:
+                previous['session'] = sample['session_key']
+            previous['basis'] = sample['basis']
+            delta = max(0, sample['output_tokens'] - previous['tokens'])
+            previous['tokens'] = max(previous['tokens'], sample['output_tokens'])
+            if delta:
+                second = math.floor(received)
+                self._second(second)['tokens'] += delta
+                previous['arrivals'].append((second, delta))
+
+    def finish(self, snapshot, now):
+        current = math.floor(now)
+        # Sleep or a stalled consumer creates gaps, never invented zero readings.
+        continuous = now - self.last_tick <= 2.5
+        for second in range(max(self.next_second, current - 60), current):
+            bucket = self._second(second)
+            if continuous:
+                bucket['available'] = snapshot['total_tps'] is not None and second >= self.started_at
+                bucket['partial'] = (snapshot['status'] != 'complete' or second < self.started_at or
+                                     bucket.get('excluded', False))
+        self.next_second, self.last_tick = current, now
+        self.seconds = {s: b for s, b in self.seconds.items() if s >= current - 60}
+        self.responses = {k: r for k, r in self.responses.items() if r['last_seen'] >= now - 600}
+        self.telemetry_sessions = {s: stamp for s, stamp in self.telemetry_sessions.items() if stamp >= now - 600}
+        for response in self.responses.values():
+            response['arrivals'] = [(s, n) for s, n in response['arrivals'] if s >= current - 60]
+
+    def snapshot(self, now):
+        current = math.floor(now)
+        return {'interval_seconds': 1, 'basis': 'reported_output', 'buckets': [
+            {'age_seconds': max(0, now - second - 1),
+             'tokens': bucket['tokens'] if bucket['tokens'] or bucket['available'] else None,
+             'partial': bucket['partial']}
+            for second, bucket in sorted(self.seconds.items()) if current - 60 <= second < current]}
+
+
 def _stop_process(process):
     if process.stdin:
         try:
@@ -219,7 +341,7 @@ def _stop_process(process):
 
 
 class LiveMeter:
-    def __init__(self, config):
+    def __init__(self, config, history=None):
         parser = configparser.ConfigParser(interpolation=None)
         if not parser.read(config, encoding='utf-8'):
             raise ValueError('Cannot read live source configuration')
@@ -237,6 +359,8 @@ class LiveMeter:
         self.states = {name: {'packet': None, 'received_at': None, 'error': None} for name, _ in self.items}
         self.processes = {}
         self.threads = []
+        self.history = history
+        self.received_output = ReceivedOutput(time.monotonic())
 
     def start(self):
         self.consumer = threading.Thread(target=self._consume, name='live-meter-consumer')
@@ -255,17 +379,28 @@ class LiveMeter:
                 continue  # Backpressure preserves snapshots; no silent dropped tokens.
 
     def _consume(self):
+        next_sample = math.floor(time.monotonic()) + 1
         while not self.stop.is_set():
             try:
                 name, received, packet, error = self.events.get(timeout=.2)
             except queue.Empty:
-                continue
-            with self.lock:
-                state = self.states[name]
-                if packet is not None:
-                    state.update(packet=packet, received_at=received, error=None)
-                elif error:
-                    state['error'] = error
+                pass
+            else:
+                with self.lock:
+                    state = self.states[name]
+                    if packet is not None:
+                        state.update(packet=packet, received_at=received, error=None)
+                        self.received_output.receive(self.states, received)
+                    elif error:
+                        state['error'] = error
+            now = time.monotonic()
+            if now >= next_sample:
+                with self.lock:
+                    snapshot = project_sources(self.states, now)
+                    self.received_output.finish(snapshot, now)
+                if self.history is not None:
+                    self.history.observe(snapshot, wall=time.time(), monotonic=now)
+                next_sample = math.floor(now) + 1
 
     def _command(self, cfg):
         if cfg['transport'] == 'local':
@@ -357,7 +492,10 @@ class LiveMeter:
 
     def snapshot(self):
         with self.lock:
-            return project_sources(self.states, time.monotonic())
+            now = time.monotonic()
+            result = project_sources(self.states, now)
+            result['received_output'] = self.received_output.snapshot(now)
+            return result
 
     def close(self):
         self.stop.set()

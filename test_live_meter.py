@@ -8,7 +8,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from live_meter import LiveMeter, project_sources, validate_packet
+from live_meter import LiveMeter, ReceivedOutput, project_sources, validate_packet
 
 
 def sample(key='response', session='session', tokens=300, start=95, end=100, **extra):
@@ -121,6 +121,92 @@ class WindowTests(unittest.TestCase):
         with self.assertRaises(ValueError): validate_packet(dict(source,version=2))
 
 
+class ReceivedOutputTests(unittest.TestCase):
+    def tick(self, meter, states, now):
+        meter.finish(project_sources(states, now), now)
+        return meter.snapshot(now)['buckets']
+
+    def test_one_second_counts_not_five_second_allocation(self):
+        meter = ReceivedOutput(199)
+        states = {'host': frame([sample(tokens=500, start=90)], received=200.2)}
+        meter.receive(states, 200.2)
+        buckets = self.tick(meter, states, 201.1)
+        self.assertEqual(buckets[-1]['tokens'], 500)
+        self.assertAlmostEqual(project_sources(states, 200.2)['total_tps'], 50)
+        # A repeated heartbeat contains the same report, not another 500 tokens.
+        states['host']['received_at'] = 201.2
+        states['host']['packet']['sampled_at'] = 101
+        meter.receive(states, 201.2)
+        self.assertEqual(self.tick(meter, states, 202.1)[-1]['tokens'], 0)
+        self.assertEqual(sum(b['tokens'] or 0 for b in meter.snapshot(202.1)['buckets']), 500)
+
+    def test_cumulative_updates_copies_and_subagents(self):
+        meter = ReceivedOutput(199)
+        states = {'a': frame([sample(tokens=100)], received=200.2),
+                  'b': frame([sample(tokens=100)], received=200.2)}
+        meter.receive(states, 200.2)
+        self.assertEqual(self.tick(meter, states, 201.1)[-1]['tokens'], 100)
+        for state in states.values():
+            state['received_at'] = 201.2
+            state['packet']['sampled_at'] = 101
+            state['packet']['samples'] = [sample(tokens=150), sample('child', 'child', tokens=40)]
+            meter.receive(states, 201.2)  # one copy catches up before the other
+        meter.receive(states, 201.2)
+        self.assertEqual(self.tick(meter, states, 202.1)[-1]['tokens'], 90)
+        self.assertEqual(sum(b['tokens'] or 0 for b in meter.snapshot(202.1)['buckets']), 190)
+        # Client polling does not mutate the counters.
+        self.assertEqual(meter.snapshot(202.1), meter.snapshot(202.1))
+
+    def test_otel_authority_retracts_copied_native_ids(self):
+        for otel_key in ('otel-id', 'response'):
+            with self.subTest(otel_key=otel_key):
+                meter = ReceivedOutput(199)
+                states = {'native': frame([sample(tokens=100)], received=200.2)}
+                meter.receive(states, 200.2)
+                self.tick(meter, states, 201.1)
+                states['otel'] = frame([dict(sample(otel_key, tokens=100), basis='codex_otel')], received=201.2)
+                meter.receive(states, 201.2)
+                buckets = self.tick(meter, states, 202.1)
+                self.assertEqual(sum(b['tokens'] or 0 for b in buckets), 100)
+                self.assertEqual(buckets[-1]['tokens'], 100)
+                self.assertTrue(buckets[-2]['partial'])
+                # A later copied log cannot replay output after OTel expires.
+                states = {'native': frame([sample('late-copy', tokens=100)], received=210.2)}
+                meter.receive(states, 210.2)
+                self.assertEqual(sum(b['tokens'] or 0 for b in meter.snapshot(211.1)['buckets']), 100)
+
+    def test_conflicts_unattributed_output_and_unknown_gaps(self):
+        meter = ReceivedOutput(199)
+        states = {'a': frame([sample(session=None, tokens=100)], received=200.2)}
+        meter.receive(states, 200.2)
+        self.assertEqual(self.tick(meter, states, 201.1)[-1]['tokens'], 100)
+        states['b'] = frame([sample(tokens=101)], received=201.2)
+        meter.receive(states, 201.2)
+        buckets = self.tick(meter, states, 202.1)
+        self.assertEqual(sum(b['tokens'] or 0 for b in buckets), 0)
+        self.assertTrue(buckets[-2]['partial'])
+        self.assertIsNone(buckets[-1]['tokens'])
+        self.tick(meter, states, 210.1)  # expired sources / consumer sleep
+        self.assertTrue(all(b['tokens'] is None and b['partial'] for b in meter.snapshot(210.1)['buckets'][-8:]))
+
+    def test_expiry_and_no_old_response_replay(self):
+        meter = ReceivedOutput(199)
+        states = {'host': frame([sample('old', end=90)], received=200.2)}
+        meter.receive(states, 200.2)
+        self.assertEqual(self.tick(meter, states, 201.1)[-1]['tokens'], 0)
+        states['host'] = frame([sample(tokens=100)], received=201.2)
+        meter.receive(states, 201.2)
+        self.assertEqual(self.tick(meter, states, 202.1)[-1]['tokens'], 100)
+        self.tick(meter, states, 262.1)
+        projection = meter.snapshot(262.1)
+        self.assertLessEqual(len(projection['buckets']), 60)
+        self.assertEqual(sum(b['tokens'] or 0 for b in projection['buckets']), 0)
+        self.tick(meter, states, 900.1)
+        self.assertFalse(meter.responses)
+        self.assertFalse(meter.telemetry_sessions)
+        self.assertNotIn('session', json.dumps(projection))
+
+
 class WorkerTests(unittest.TestCase):
     def test_local_worker_one_second_and_shutdown(self):
         class FakeProbe:
@@ -140,6 +226,7 @@ class WorkerTests(unittest.TestCase):
                     self.assertGreaterEqual(second-first,.8)
                     self.assertLess(second-first,1.3)
                     self.assertEqual(meter.snapshot()['total_tps'],0)
+                    self.assertEqual(meter.snapshot()['received_output']['interval_seconds'], 1)
                 finally: meter.close()
                 self.assertFalse(any(t.is_alive() for t in meter.threads))
 

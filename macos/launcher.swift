@@ -144,7 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         showMeterCheckbox.frame = NSRect(x: 36, y: 82, width: 466, height: 22)
         content.addSubview(showMeterCheckbox)
 
-        let note = NSTextField(wrappingLabelWithString: "Dashboard data and diagnostics stay in memory. Machine settings stay in ~/Library/Application Support/TokenScope, outside this app.")
+        let note = NSTextField(wrappingLabelWithString: "Live readings and diagnostics stay in memory. Minute history is saved every 15 minutes; lifetime daily totals are saved daily and on quit. Settings and history stay in ~/Library/Application Support/TokenScope.")
         note.font = .systemFont(ofSize: 11)
         note.textColor = .secondaryLabelColor
         note.frame = NSRect(x: 36, y: 31, width: 466, height: 40)
@@ -174,7 +174,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let output = RAMServerOutput()
         serverOutput = output
         server.executableURL = serverExecutable
-        server.arguments = ["--host", "0.0.0.0", "--port", "8765", "--config", configURL.path, "--live-meter"]
+        server.arguments = ["--host", "0.0.0.0", "--port", "8765", "--config", configURL.path, "--live-meter",
+                            "--meter-history", support.appendingPathComponent("meter-history", isDirectory: true).path,
+                            "--daily-archive", support.appendingPathComponent("daily-usage", isDirectory: true).path]
         server.currentDirectoryURL = support
         server.standardOutput = output.pipe
         server.standardError = output.pipe

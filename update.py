@@ -117,13 +117,19 @@ def response_duration_ms(row):
     return 0
 
 
-def aggregate(sources):
+def aggregate(sources, *, meter_history=False):
     """Calculate dashboard and export records in memory, without filesystem I/O."""
     totals = defaultdict(lambda: defaultdict(int))
     hourly_totals = defaultdict(lambda: defaultdict(int))
     session_totals = defaultdict(lambda: defaultdict(int))
     samples = []
     responses = []
+    minute_usage = defaultdict(int)
+    fine_usage = defaultdict(int)
+    day_usage = defaultdict(int)
+    history_now = int(datetime.now(timezone.utc).timestamp())
+    history_start = (history_now - 28 * 86400) // 60 * 60
+    fine_start = history_now // 60 * 60 - 3600
     audit = {}
     seen = {}
     duplicates = 0
@@ -167,6 +173,14 @@ def aggregate(sources):
             if r.get('session_provider'):
                 provider = r['session_provider']
             model = canonical_model(r)
+            if meter_history:
+                used = fresh(r) + sum(r[k] for k in ('output_tokens', 'cache_read_tokens', 'cache_creation_tokens'))
+                if grain == 'request' and history_start <= r['created_at'] <= history_now:
+                    minute_usage[str(int(r['created_at'] // 60) * 60)] += used
+                    if r['created_at'] >= fine_start:
+                        fine_usage[str(int(r['created_at'] // 5) * 5)] += used
+                elif grain == 'rollup' and r['date'] >= datetime.fromtimestamp(history_start).date().isoformat():
+                    day_usage[r['date']] += used
             key = (r['date'], host, app, provider, model, grain)
             hour = r['local_datetime'][11:13] if grain == 'request' else 'Unknown hour'
             for t in (totals[key], hourly_totals[(r['date'], hour, host, app, provider, model, grain)]):
@@ -268,8 +282,15 @@ def aggregate(sources):
     summary['response_speed_available'] = True
     summary['host_date'] = datetime.now().date().isoformat()
     summary['host_timezone'] = datetime.now().astimezone().tzname()
-    return {'summary': summary, 'daily': daily, 'hourly': hourly,
-            'session_daily': session_daily, 'samples': samples, 'responses': responses}
+    result = {'summary': summary, 'daily': daily, 'hourly': hourly,
+              'session_daily': session_daily, 'samples': samples, 'responses': responses}
+    if meter_history:
+        result['meter_usage'] = {'start': history_start, 'end': history_now // 60 * 60 + 60,
+                                 'minutes': dict(minute_usage), 'day_only': dict(day_usage),
+                                 'fine': {'start': fine_start, 'end': history_now // 5 * 5 + 5,
+                                          'counts': dict(fine_usage)},
+                                 'available': bool(sources), 'partial': False}
+    return result
 
 
 def build(sources, out, render_figures=True):

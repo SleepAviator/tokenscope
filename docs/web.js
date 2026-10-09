@@ -15,6 +15,52 @@ function filtered(rows=data?.rows||[]){
   return filterUsageRows(rows,$('from').value,$('through').value,new Set([...selected].filter(model=>available.has(model))));
 }
 let sessionLimit=50, activeSessionKey=null, activeProjectKey=null, snapshotPending=false;
+const sessionSortShortcuts={tokens:8,cost:10,latest:1};
+const tableSorts=new Map([['session-body',{column:8,direction:'descending'}]]);
+function sortedTableItems(body,items,values){
+  const order=tableSorts.get(body.id);
+  return order?sortTableRows(items,order.column,order.direction,values,uiLocale()):items;
+}
+function updateTableHeaders(body){
+  const order=tableSorts.get(body.id);
+  body.closest('table').tHead.querySelectorAll('th').forEach((header,column)=>{
+    header.setAttribute('aria-sort',order?.column===column?order.direction:'none');
+    header.querySelector('.table-sort').title=t('Click to sort; click again to reverse.');
+  });
+}
+function applyTableSort(body){
+  updateTableHeaders(body);
+  if(tableSorts.has(body.id))body.replaceChildren(...sortedTableItems(body,[...body.rows],row=>row.sortValues));
+}
+function installTableSorting(){
+  for(const table of document.querySelectorAll('table')){
+    const body=table.tBodies[0];
+    table.tHead.querySelectorAll('th').forEach((header,column)=>{
+      const button=element('button',undefined,'table-sort');button.type='button';
+      button.append(...header.childNodes);header.append(button);
+      button.onclick=()=>{
+        const previous=tableSorts.get(body.id);
+        const direction=previous?.column===column&&previous.direction==='ascending'?'descending':'ascending';
+        tableSorts.set(body.id,{column,direction});
+        if(body.id==='session-body'){
+          $('session-sort').value=direction==='descending'
+            ?Object.keys(sessionSortShortcuts).find(key=>sessionSortShortcuts[key]===column)||'header':'header';
+          renderSessions(false);
+        }else applyTableSort(body);
+      };
+    });
+    updateTableHeaders(body);
+  }
+}
+function responseRateValues(group){return [group.tps_count?group.tps_avg:null,group.tps_count?group.tps_max:null,group.tps_count||0];}
+function usageSortValues(group,includeSessions=false){
+  const values=['fresh_input_tokens','cache_read_tokens','cache_creation_tokens','output_tokens','tokens','requests'].map(field=>group[field]);
+  if(includeSessions)values.push(group.sessions);
+  return [...values,group.cost,...responseRateValues(group)];
+}
+function sessionSortValues(group){
+  return [group.title||t('Title unavailable'),group.last,group.host+' / '+group.app,group.models.join(', '),...usageSortValues(group)];
+}
 function projectValues(group){
   return [...['fresh_input_tokens','cache_read_tokens','cache_creation_tokens','output_tokens','tokens','requests','sessions'].map(field=>group[field].toLocaleString(uiLocale())),money(group.cost),...responseRateCells(group)];
 }
@@ -46,8 +92,10 @@ function renderProjects(){
     button.type='button';button.setAttribute('aria-expanded',String(activeProjectKey===group.key));button.onclick=()=>open(group.key);
     cell.append(button);tr.append(cell);
     for(const value of [group.host+' / '+group.apps.join(', '),group.models.join(', '),...projectValues(group)])tr.append(element('td',value));
+    tr.sortValues=[name(group),group.host+' / '+group.apps.join(', '),group.models.join(', '),...usageSortValues(group,true)];
     $('project-body').append(tr);
   }
+  applyTableSort($('project-body'));
   const detail=projectDetails(rows,activeProjectKey);
   $('project-detail').hidden=!detail.project;
   if(!detail.project){activeProjectKey=null;return;}
@@ -56,7 +104,8 @@ function renderProjects(){
   $('project-detail-meta').textContent=`${group.host} / ${group.apps.join(', ')} · ${group.first} → ${group.last} · ${group.sessions} ${t('Sessions')} · ${compact(group.tokens)} tokens · ${money(group.cost)}`;
   for(const [id,items] of [['project-date-body',detail.daily],['project-model-body',detail.models]]){
     $(id).replaceChildren();
-    for(const item of items)appendCells($(id),[item.value,...projectValues(item)]);
+    for(const item of items)appendCells($(id),[item.value,...projectValues(item)],[item.value,...usageSortValues(item,true)]);
+    applyTableSort($(id));
   }
   $('project-session-body').replaceChildren();
   for(const session of detail.sessions){
@@ -64,8 +113,10 @@ function renderProjects(){
     button.type='button';button.onclick=()=>{$('show-sessions').checked=true;openSession(sessionIdentity(session));};
     cell.append(button);tr.append(cell);
     for(const value of [session.host+' / '+session.app,session.tokens.toLocaleString(uiLocale()),session.requests.toLocaleString(uiLocale()),money(session.cost),...responseRateCells(session)])tr.append(element('td',value));
+    tr.sortValues=[session.title||t('Title unavailable'),session.host+' / '+session.app,session.tokens,session.requests,session.cost,...responseRateValues(session)];
     $('project-session-body').append(tr);
   }
+  applyTableSort($('project-session-body'));
 }
 function chartResolution(){
   const resolution=timeResolution($('from').value,$('through').value,filtered(),Math.max(820,$('chart-wrap').clientWidth)-140);
@@ -134,7 +185,7 @@ function responseRateCells(s){
   const estimate=s.native_tps_count?'≈':'';
   return [s.tps_count?estimate+s.tps_avg.toFixed(2):'—',s.tps_count?estimate+s.tps_max.toFixed(2):'—',`${s.tps_count||0} / ${s.requests}`];
 }
-function appendCells(body,values){const tr=element('tr');for(const value of values)tr.append(element('td',value));body.append(tr);}
+function appendCells(body,values,sortValues){const tr=element('tr');tr.sortValues=sortValues;for(const value of values)tr.append(element('td',value));body.append(tr);}
 function renderSessionDetail(rows, groups){
   const panel=$('session-detail');
   if(!activeSessionKey){panel.hidden=true;return;}
@@ -152,12 +203,15 @@ function renderSessionDetail(rows, groups){
     const card=element('div');card.append(element('span',t(label)),element('strong',responseRateCells(s)[index]));$('session-detail-summary').append(card);
   }
   for(const [label,field] of [[t('Fresh input'),'fresh_input_tokens'],[t('Cache read'),'cache_read_tokens'],[t('Cache write'),'cache_creation_tokens'],[t('Output'),'output_tokens']]){
-    const tokens=s[field],share=s.tokens?100*tokens/s.tokens:0;appendCells(componentBody,[label,tokens.toLocaleString(uiLocale()),`${share.toFixed(1)}%`]);
+    const tokens=s[field],share=s.tokens?100*tokens/s.tokens:0;appendCells(componentBody,[label,tokens.toLocaleString(uiLocale()),`${share.toFixed(1)}%`],[label,tokens,share]);
   }
+  applyTableSort(componentBody);
   const dateBody=$('session-date-body');dateBody.replaceChildren();
-  for(const day of detail.daily)appendCells(dateBody,[day.value,day.models.join(', '),...['fresh_input_tokens','cache_read_tokens','cache_creation_tokens','output_tokens','tokens','requests'].map(field=>day[field].toLocaleString(uiLocale())),money(day.cost),...responseRateCells(day)]);
+  for(const day of detail.daily)appendCells(dateBody,[day.value,day.models.join(', '),...['fresh_input_tokens','cache_read_tokens','cache_creation_tokens','output_tokens','tokens','requests'].map(field=>day[field].toLocaleString(uiLocale())),money(day.cost),...responseRateCells(day)],[day.value,day.models.join(', '),...usageSortValues(day)]);
+  applyTableSort(dateBody);
   const modelBody=$('session-model-body');modelBody.replaceChildren();
-  for(const model of detail.models)appendCells(modelBody,[model.value,...['fresh_input_tokens','cache_read_tokens','cache_creation_tokens','output_tokens','tokens','requests'].map(field=>model[field].toLocaleString(uiLocale())),money(model.cost),...responseRateCells(model)]);
+  for(const model of detail.models)appendCells(modelBody,[model.value,...['fresh_input_tokens','cache_read_tokens','cache_creation_tokens','output_tokens','tokens','requests'].map(field=>model[field].toLocaleString(uiLocale())),money(model.cost),...responseRateCells(model)],[model.value,...usageSortValues(model)]);
+  applyTableSort(modelBody);
 }
 function renderSessions(resetLimit=true){
   if(resetLimit)sessionLimit=50;
@@ -172,10 +226,10 @@ function renderSessions(resetLimit=true){
   }
   const sessionRows=withNativeTPS(filtered(visibleSessionRows(data.session_rows)),$('native-tps').checked);
   const hiddenRequests=filtered(data.session_rows).reduce((sum,row)=>sum+row.requests,0)-sessionRows.reduce((sum,row)=>sum+row.requests,0);
-  const groups=summarizeSessions(sessionRows);
+  // Sort every matching session before pagination, not just the visible 50 rows.
+  const groups=sortedTableItems($('session-body'),summarizeSessions(sessionRows)
+    .sort((a,b)=>a.session_key.localeCompare(b.session_key)||a.host.localeCompare(b.host)||a.app.localeCompare(b.app)),sessionSortValues);
   renderSessionMatrix(sessionRows);
-  const mode=$('session-sort').value;
-  groups.sort((a,b)=>(mode==='latest'?b.last.localeCompare(a.last):b[mode]-a[mode])||a.session_key.localeCompare(b.session_key)||a.host.localeCompare(b.host)||a.app.localeCompare(b.app));
   const totals=filtered(),allTokens=totals.reduce((s,r)=>s+r.tokens,0),allRequests=totals.reduce((s,r)=>s+r.requests,0)-hiddenRequests;
   const tokens=groups.reduce((s,r)=>s+r.tokens,0),requests=groups.reduce((s,r)=>s+r.requests,0),cost=groups.reduce((s,r)=>s+r.cost,0);
   $('session-coverage').textContent=bilingual(`${groups.length.toLocaleString(uiLocale())} identified sessions · ${tokens.toLocaleString(uiLocale())} tokens · ${money(cost)} est. · ${requests.toLocaleString(uiLocale())} requests. ${Math.max(0,allTokens-tokens).toLocaleString(uiLocale())} tokens / ${Math.max(0,allRequests-requests).toLocaleString(uiLocale())} requests lack session detail (including historical rollups). Showing ${Math.min(sessionLimit,groups.length)} of ${groups.length.toLocaleString(uiLocale())} sessions.`,`已识别 ${groups.length.toLocaleString(uiLocale())} 个会话 · ${tokens.toLocaleString(uiLocale())} Token · ${money(cost)}（预估）· ${requests.toLocaleString(uiLocale())} 次请求。另有 ${Math.max(0,allTokens-tokens).toLocaleString(uiLocale())} Token / ${Math.max(0,allRequests-requests).toLocaleString(uiLocale())} 次请求缺少会话明细（含历史汇总）。表格显示 ${Math.min(sessionLimit,groups.length)} / ${groups.length.toLocaleString(uiLocale())} 个会话。`);
@@ -185,8 +239,10 @@ function renderSessions(resetLimit=true){
     const key=sessionIdentity(s),tr=element('tr');if(key===activeSessionKey)tr.className='session-active';const title=element('td'),open=element('button',s.title||t('Title unavailable'),'session-open');open.type='button';open.title=s.title||t('No saved conversation title matches this source record.');open.setAttribute('aria-expanded',String(key===activeSessionKey));open.onclick=()=>openSession(key);title.append(open);tr.append(title);
     const values=[s.first===s.last?s.first:`${s.first} → ${s.last}`,`${s.host} / ${s.app}`,s.models.join(', '),
       ...['fresh_input_tokens','cache_read_tokens','cache_creation_tokens','output_tokens','tokens','requests'].map(k=>s[k].toLocaleString(uiLocale())),money(s.cost),...responseRateCells(s)];
+    tr.sortValues=sessionSortValues(s);
     for(const value of values)tr.append(element('td',value));$('session-body').append(tr);
   }
+  updateTableHeaders($('session-body'));
   $('session-more').hidden=groups.length<=sessionLimit;
   renderSessionDetail(sessionRows,groups);
 }
@@ -418,10 +474,14 @@ $('speed-native-tps').addEventListener('change',()=>{
 });
 for(const id of ['speed-period','speed-metric'])$(id).addEventListener('change',()=>renderResponseSpeed());
 $('matrix-palette').addEventListener('change',()=>renderSessionMatrix(filtered(visibleSessionRows(data?.session_rows||[]))));
-$('session-sort').addEventListener('change',()=>renderSessions());
+$('session-sort').addEventListener('change',()=>{
+  tableSorts.set('session-body',{column:sessionSortShortcuts[$('session-sort').value],direction:'descending'});
+  renderSessions();
+});
 $('session-more').onclick=()=>{sessionLimit+=50;renderSessions(false);};
 $('session-detail-close').onclick=()=>{activeSessionKey=null;renderSessions(false);};
 
+installTableSorting();
 const applyStaticLanguage = staticTranslations(document.body);
 applyStaticLanguage();
 $('language').value=language;
@@ -431,6 +491,7 @@ $('language').addEventListener('change',()=>{
   catch(error) { console.warn('Language preference could not be saved:',error.name); }
   const url=new URL(location.href);url.searchParams.set('lang',language);history.replaceState(null,'',url);
   applyStaticLanguage();
+  for(const body of document.querySelectorAll('table tbody'))updateTableHeaders(body);
   if(data)installData(data);
   if(window.TOKEN_SCOPE_DEMO)demoStatus();else poll();
 });

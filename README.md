@@ -11,11 +11,11 @@ for Codex, Claude Code, and multi-machine workflows.
 
 **Python-powered · No frontend build · MIT licensed**
 
-[Explore the animated demo](https://crear12.github.io/tokenscope/) · [Quick start](#quick-start) · [How counting works](#accounting-and-limitations)
+[Explore the animated demo](https://sleepaviator.github.io/tokenscope/) · [Quick start](#quick-start) · [How counting works](#accounting-and-limitations)
 
 </div>
 
-[![TokenScope dashboard showing synthetic daily token usage, estimated costs, and monthly leading models](assets/demo-preview.png)](https://crear12.github.io/tokenscope/)
+[![TokenScope dashboard showing synthetic daily token usage, estimated costs, and monthly leading models](assets/demo-preview.png)](https://sleepaviator.github.io/tokenscope/)
 
 *Entirely synthetic demo data. Click the snapshot to explore the animated, interactive dashboard.*
 
@@ -33,12 +33,15 @@ and which model leads each month—without opening a statistics page on every ma
 | **Focused exploration** | Narrow the date range and select one or several model names. |
 | **Session heatmap** | Explore session titles by date with adaptive jet colors for token usage. |
 | **Session drill-down** | Click a title for token components, requests, cost, and date/model breakdowns. Shared filters apply throughout. |
+| **Projects across machines** | Merge matching project paths, including cloud-relative folders, and drill down into their models and conversations. |
+| **Click-to-sort tables** | Click any table column heading to sort; click again to reverse. Numeric values sort numerically, including the full session list before pagination. |
 | **Response speed** | Compare per-response TPS and measured first-token latency over the last 7 days, last 30 days, or all history. Explore daily calendar tiles, weekday/hour patterns, and model statistics with timing coverage counts. |
 | **macOS menu bar TPS** | Read combined output TPS and the average per contributing session across configured machines and providers, with explicit coverage gaps. |
 | **One or many machines** | Collect locally or read remote statistics through your own private SSH configuration. |
-| **Desktop downloads** | Get standalone Windows x64, Linux x64, or macOS Apple silicon/Intel builds from GitHub Releases. |
+| **Desktop packaging** | Build standalone macOS, Windows, and Linux bundles. Existing GitHub downloads may lag the source; this update does not publish a new app. |
 | **Refresh on your terms** | Choose 5 seconds to 10 minutes in the browser, aligned to the clock. |
-| **Portable reports** | Generate PNG/SVG charts, CSV tables, and JSON/Markdown summaries. |
+| **Portable reports** | Download a chart PNG with its model-color legend, or generate PNG/SVG charts, CSV tables, and JSON/Markdown summaries. |
+| **Optional private history** | Retain 28 days of numeric minute history and lifetime daily totals locally; source databases remain read-only. |
 
 The live webpage needs **only Python's standard library**. No Node, database server,
 cloud account, or permanently running service. Start one command; stop with Ctrl+C.
@@ -50,7 +53,7 @@ Simplified Chinese. Your browser remembers the selection; date/model filters sta
 unchanged. Share a Chinese view with `?lang=zh-CN` or an English view with `?lang=en`.
 Model names, source names, conversation titles and recorded USD amounts are preserved.
 
-The [interactive demo](https://crear12.github.io/tokenscope/) uses **entirely synthetic data**: 90 days,
+The [interactive demo](https://sleepaviator.github.io/tokenscope/) uses **entirely synthetic data**: 90 days,
 three fictional models, and two fictional sources. It has animated chart reveals,
 a replay button, working date/model filters, and reduced-motion support. It never
 reads your configuration, databases, session files, or SSH settings.
@@ -67,29 +70,32 @@ The animated demo is an HTML page; GitHub's README itself does not execute JavaS
 
 ### Desktop apps
 
-Download the latest build for your system from
-[GitHub Releases](https://github.com/Crear12/tokenscope/releases):
+**This is a source and demo update, not a new desktop release.** Existing downloads
+at [GitHub Releases](https://github.com/SleepAviator/tokenscope/releases) are older
+and do not contain all features described here. Use the Python quick start below
+for the latest dashboard. Packaging scripts also support Windows and Linux;
+available downloads depend on the release.
 
-- **macOS:** choose **TokenScope-macOS-arm64** for Apple silicon or
-  **TokenScope-macOS-x86_64** for Intel. Unzip and move `TokenScope.app` to Applications.
+- **macOS:** choose the **macOS-arm64** archive for Apple silicon or
+  **macOS-x86_64** for Intel. Unzip and move `TokenScope.app` to Applications.
   Open it to start the dashboard and menu bar meter. Closing its launcher window
   keeps the meter running; choose **Stop and quit** to stop it. **Machine settings…** edits the private config,
   stored under `~/Library/Application Support/TokenScope/`. Dashboard snapshots and
   the launcher's bounded diagnostic log stay in RAM.
-- **Windows x64:** unzip and double-click `launch-tokenscope.bat`. It keeps a console
+- **Windows x64 bundles, when available:** unzip and double-click `launch-tokenscope.bat`. It keeps a console
   open for collection status; press Ctrl+C there to stop. Settings are stored in
   `%APPDATA%\TokenScope\config.ini`; dashboard snapshots stay in RAM.
-- **Linux x64:** extract the `.tar.gz` and run `./launch-tokenscope.sh` in a terminal.
+- **Linux x64 bundles, when available:** extract the `.tar.gz` and run `./launch-tokenscope.sh` in a terminal.
   First enter the extracted `TokenScope-Linux-x86_64` folder. Press Ctrl+C to stop.
   Config uses the XDG config directory, defaulting to `~/.config/tokenscope/`;
   dashboard snapshots stay in RAM. The binary is built on Ubuntu
   22.04 and requires a compatible glibc.
 
-The macOS app and Windows executable are unsigned. macOS may show a first-open warning;
-if you trust the download, use Finder's Control-click → **Open**. Windows SmartScreen
-may also warn about an unsigned app. Developer ID signing/notarization for macOS
-requires Apple's paid developer program. GitHub Actions builds for this public repo
-do not require a paid GitHub plan.
+Desktop downloads are not Developer ID signed/notarized; macOS Gatekeeper may block
+them, and Windows SmartScreen may warn about unsigned executables. This source-only
+update does not resolve or re-test older downloads. Use the Python source when a
+download is blocked; do not disable system security protections. GitHub Actions
+builds for this public repo do not require a paid GitHub plan.
 
 The app listens on the LAN by default, like `python app.py`: it has no login or TLS.
 Use it only on a trusted network; other LAN devices can view the dashboard and change
@@ -106,6 +112,31 @@ plus **Open dashboard**, **Machine settings…**, **Show launcher** and **Stop a
 Use **Show menu bar TPS meter** in the launcher to show or hide it. Your choice is
 remembered; reopening TokenScope from the Dock brings the launcher back.
 No login service or extra dashboard panel is installed.
+
+One-second readings stay in RAM. The macOS launcher also retains 28 days of numeric
+minute aggregates in `~/Library/Application Support/TokenScope/meter-history`,
+saved every 15 minutes and at clean shutdown. Historical token totals count input
+and output, including cached input once; rate history is the mean of observed TPS
+readings. Missing coverage remains explicit. These small JSONL journals contain no
+message content, session identifiers, models or source paths.
+For ten-minute rate history, up to 600 one-second samples remain in RAM; older
+ranges use the saved minute aggregates. Recent history also keeps one hour of
+five-second rate integrals and timestamped usage counts in RAM. The history API
+uses 120 time buckets, including 30-second buckets for one hour. Older minute-only
+values are explicitly marked as coarse. Short-term sampling adds no disk writes.
+
+The launcher separately saves lifetime **daily usage totals** in
+`~/Library/Application Support/TokenScope/daily-usage`, once after initial collection,
+every 24 hours, and on clean quit. Each private JSON file contains one usage date's
+machine/app/model token and request totals, recorded cost, and source collection time.
+There is no database, prompt, session identity or raw source path in these logs.
+They restore roughly correct lifetime totals when a machine is offline after a restart.
+The dashboard marks archived coverage and its age; missing hourly/session detail
+remains unavailable. Reconnection replaces covered dates, including deduplicated-away
+counts, rather than adding the archive to fresh totals. Entire older dates no longer
+present in the source remain archived. Copied records in an offline daily archive
+cannot be rechecked until the source reconnects. A crash can lose changes since the
+last checkpoint; this is not a backup of raw usage records.
 
 The meter passively follows Codex and Claude native logs and recent timed CC-Switch
 requests on every configured local/SSH source, without filtering service providers.
@@ -186,6 +217,22 @@ disabled snapshot. The native menu UI is macOS-only. Its compact presentation is
 adapted from [Token Meter](https://github.com/splunk/token-meter), with MIT attribution
 in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
+The live snapshot's `received_output` contains up to 60 completed one-second RAM
+buckets of newly reported output tokens. Repeated usage reports and copied logs count
+once; cumulative response updates add only their increase. This is a receipt-time
+count, separate from the five-second TPS estimate. Batched reports can produce spikes,
+and unobserved network-stream chunks cannot be reconstructed.
+For history outside the macOS launcher, pass `--meter-history /private/history-folder`.
+`GET /api/live/history?range=3600` returns bounded numeric history through loopback;
+supported ranges run from 600 seconds (10 minutes) through 2419200 seconds (28 days).
+The ten-minute response also supplies `rate_buckets` with 600 one-second positions;
+missing RAM readings are null gaps. Used-token `buckets` retain their recorded minute
+resolution outside the recent RAM window; recent counts use their recorded request
+timestamps. Each range supplies 120 `buckets`; `coarse_rate` and `coarse_tokens`
+identify older minute-only values. Counts without finer timestamps are kept together
+and are never divided into invented token arrivals. For daily accounting persistence outside the macOS launcher, pass
+`--daily-archive /private/daily-usage-folder`; source readers stay read-only.
+
 Codex native-log TPS estimates are **enabled by default**. Uncheck **Include Codex
 native-log TPS estimates** in the per-session section to hide them (saved per browser).
 To stop scanning native logs on a machine, set `codex_native_tps = false` in that
@@ -221,7 +268,7 @@ affects TPS only, not measured first-token latency.
 Requires Python 3.9+ and an existing CC-Switch database.
 
 ```sh
-git clone https://github.com/Crear12/tokenscope.git
+git clone https://github.com/SleepAviator/tokenscope.git
 cd tokenscope
 # From the project folder (Windows: use copy instead of cp)
 cp config.example.ini config.ini
@@ -259,8 +306,9 @@ is disconnected or collection fails, other machines still refresh. An alert mark
 the retained data as stale and source details show its original collection time.
 Machines with no successful snapshot are marked unavailable and totals incomplete.
 Reconnection replaces that machine's snapshot and clears its warning. Snapshots
-remain private for the current run. Restarting clears them and collects fresh data;
-offline machines then remain unavailable until they reconnect. Unexpected whole-refresh
+remain private for the current run. With the launcher's daily archive enabled, restart
+restores daily totals while collecting fresh data; without it, offline machines remain
+unavailable until they reconnect. Unexpected whole-refresh
 failures preserve the previous in-memory result. Existing cache files and exports are
 left intact. `--cache PATH` can explicitly load an existing snapshot at startup;
 it is read-only and never rewritten. The collector reads existing CC-Switch databases
@@ -278,8 +326,10 @@ The date/model filters and native-log TPS preference apply to both views. Folder
 ## Per-session usage
 
 Check **Show per-session usage** in the filter bar to reveal the heatmap and table; uncheck it
-to hide them without changing your data selection. Sort the table by tokens, estimated
-cost, or latest selected activity. Large results show 50 sessions at a time.
+to hide them without changing your data selection. Every table column heading is
+clickable: click to sort, then click again to reverse. The session table sorts the
+full matching list before showing 50 sessions at a time. The existing quick-sort
+selector remains available.
 
 Each row groups a recorded session ID within one machine and application. Usage is
 first filtered by the shared date range and model selection, then summed per session.
@@ -298,8 +348,9 @@ Saved Codex names and Claude Code custom titles are read locally; missing names 
 Claude title lookup supports inline events, per-session `custom-title.json`, and
 Claude / Claude-3p desktop metadata. When CC-Switch assigns request-scoped session
 IDs, the collector joins `request_id = session:<message.id>` to the Claude log's
-conversation ID. Only unique exact matches are used; ambiguous or missing links
-remain unchanged. No timestamp guessing is used, and token/cost accounting is
+conversation ID. An exact match, or multiple exact candidates that all have the same
+saved title, can supply a title. Conflicting or missing titles remain unresolved.
+The original usage session identity is unchanged. No timestamp guessing is used, and token/cost accounting is
 preserved. Message bodies are not exported; only IDs and saved titles are retained.
 Optional `codex_home` and `claude_projects` source settings select metadata locations.
 `codex_home` also determines the live Codex log defaults described above.
@@ -356,6 +407,8 @@ succeed; failures are reported rather than presenting partial results as complet
   conflicting values fail. Rollups lack original IDs and may overlap across hosts.
 - Provider metadata can be joined from the first Codex session header. Session
   text is not exported. Missing metadata remains explicitly unknown.
+- The public version preserves source model names and ships no private model
+  alias mappings or per-request corrections.
 - Claude Desktop gateway rows are grouped with Claude Code; this is not coverage
   of every Desktop conversation. Source data quality limits reporting accuracy.
 - Diagnostic TPS uses output tokens / recorded request duration, with latency
@@ -366,6 +419,8 @@ succeed; failures are reported rather than presenting partial results as complet
 Only source files, tests, this README, requirements, the example configuration and
 `.gitignore` belong in Git. Never publish real configuration, databases, generated
 outputs, screenshots of private usage, SSH files, credentials, or session logs.
+The launcher's private `meter-history/` journals and `daily-usage/` archives also
+stay outside Git; they are not part of the public demo or downloads.
 The database reader selects usage fields and provider display names, not provider
 settings, credentials or prompts. The title reader also reads saved conversation
 names. Aggregates reveal usage, source display names and saved titles to dashboard
@@ -381,6 +436,8 @@ history. `docs/` contains only the synthetic demo and its public assets.
 app.py            Foreground web server and refresh orchestration
 collect.py        Read-only CC-Switch statistics reader
 update.py         Accounting, summaries, and static chart generation
+meter_history.py  Optional private minute history and recent RAM buckets
+daily_archive.py  Optional private lifetime daily totals
 web.*             Dashboard interface, shared with the demo
 config.example.ini  Public local-only configuration template
 build_demo.py     Deterministic fictional-data demo builder

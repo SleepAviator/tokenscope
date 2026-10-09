@@ -169,6 +169,8 @@ if (typeof window !== 'undefined') {
     : ['en','zh-CN'].includes(saved) ? saved : navigator.language.startsWith('zh') ? 'zh-CN' : 'en';
 }
 Object.assign(ZH,{
+  'Click to sort; click again to reverse.':'点击排序；再次点击反向排序。',
+  'Column header order':'按表头排序',
   'Download snapshot':'下载图表快照',
   'Preparing snapshot…':'正在生成快照…',
   'Snapshot downloaded with model legend.':'已下载包含模型图例的图表快照。',

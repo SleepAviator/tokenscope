@@ -1,9 +1,38 @@
+import json
 import unittest
 from collections import defaultdict
+from pathlib import Path
 from build_demo import synthetic_data
 
 
 class SyntheticDemo(unittest.TestCase):
+    def test_published_demo_matches_only_synthetic_fixture(self):
+        source = (Path(__file__).parent / 'docs' / 'demo-data.js').read_text()
+        prefix = 'window.TOKEN_SCOPE_DEMO = '
+        self.assertTrue(source.startswith(prefix))
+        self.assertEqual(json.loads(source[len(prefix):].rstrip().removesuffix(';')),
+                         synthetic_data())
+
+    def test_published_client_assets_match_source(self):
+        root = Path(__file__).parent
+        for name in ('web.js', 'web.css', 'session_usage.js', 'response_speed.js', 'i18n.js'):
+            with self.subTest(asset=name):
+                self.assertEqual((root / name).read_bytes(), (root / 'docs' / name).read_bytes())
+
+    def test_public_links_use_current_repository(self):
+        root = Path(__file__).parent
+        for name in ('README.md', 'README.zh-CN.md', 'docs/index.html'):
+            with self.subTest(page=name):
+                text = (root / name).read_text()
+                self.assertNotIn('Crear12/tokenscope', text)
+                self.assertNotIn('crear12.github.io/tokenscope', text)
+                self.assertIn('github.com/SleepAviator/tokenscope', text)
+
+    def test_private_history_folders_are_ignored(self):
+        patterns = set((Path(__file__).parent / '.gitignore').read_text().splitlines())
+        self.assertTrue({'*.ini', 'output/', 'meter-history/', 'daily-usage/',
+                         '*.db*', '*.sqlite*', '*.jsonl', '.env', '*.key'} <= patterns)
+
     def test_deterministic_complete_and_fictional(self):
         data = synthetic_data()
         self.assertEqual(data, synthetic_data())

@@ -62,7 +62,7 @@ class StateTests(unittest.TestCase):
         for sid, tokens in ((SID, 300), (SIDE, 200), ('third', 100)):
             values.extend((record(1, 'response.created', sid), record(6, 'response.completed', sid, tokens)))
         result = self.feed(packet(*values))
-        projected = project_sources({'Yienware': dict(packet=validate_packet(result),
+        projected = project_sources({'workstation': dict(packet=validate_packet(result),
                                                       received_at=BASE + 6, error=None)}, BASE + 6)
         self.assertEqual(projected['total_tps'], 120)
         self.assertEqual(projected['average_tps'], 40)
@@ -225,7 +225,7 @@ class StateTests(unittest.TestCase):
         self.assertEqual(result['session_activity'][opaque('codex', SID)]['pending'], False)
 
     def test_malformed_or_explicit_failed_websocket_requests_do_not_create_usage(self):
-        secret = 'private error /Users/Crear secret API_KEY'
+        secret = 'private error /Users/example secret API_KEY'
         events, counts = project_otlp(packet(websocket_request(1, success=False),
                                             websocket_request(2, error=secret),
                                             websocket_request(3, success='false')), BASE + 6)
@@ -300,7 +300,7 @@ class StateTests(unittest.TestCase):
     def test_model_and_provider_paths_are_rejected(self):
         result = self.feed(packet(record(1, 'response.created'),
                                   record(6, 'response.completed', tokens=300,
-                                         model='C:/Users/Crear/private', model_provider='https://example.com/private')))
+                                         model='C:/Users/example/private', model_provider='https://example.com/private')))
         self.assertEqual(result['samples'][0]['model'], 'Unknown')
         self.assertEqual(result['samples'][0]['provider'], 'Provider unreported')
         self.assertNotIn('Users', json.dumps(result))
@@ -314,7 +314,7 @@ class StateTests(unittest.TestCase):
                       self.state.snapshot(BASE + 6)['coverage']['issues'])
 
     def test_projection_never_retains_prompt_tool_paths_credentials_or_raw_ids(self):
-        secret = 'private secret prompt /Users/Crear/.codex tool-output API_KEY_abcdef'
+        secret = 'private secret prompt /Users/example/.codex tool-output API_KEY_abcdef'
         first = record(1, 'response.created', prompt=secret, tool_output=secret,
                        error=secret, cwd=secret, authorization=secret)
         first['body'] = {'stringValue': secret}

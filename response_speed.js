@@ -52,11 +52,13 @@ function speedTip(label,stats){
 }
 function speedTable(body,groups,labels){
   body.replaceChildren();
-  for(const [key,label]of labels){
+  for(const [key,label,sortLabel=label]of labels){
     const stats=groups.get(key)||responseStats([]);
     const rate=value=>(stats.native&&value!==null?'≈':'')+speedNumber(value);
-    appendCells(body,[label,stats.responses.toLocaleString(),stats.tps.count.toLocaleString(),rate(stats.tps.avg),rate(stats.tps.median),rate(stats.tps.max),stats.latency.count.toLocaleString(),speedNumber(stats.latency.avg),speedNumber(stats.latency.median),speedNumber(stats.latency.p95)]);
+    appendCells(body,[label,stats.responses.toLocaleString(),stats.tps.count.toLocaleString(),rate(stats.tps.avg),rate(stats.tps.median),rate(stats.tps.max),stats.latency.count.toLocaleString(),speedNumber(stats.latency.avg),speedNumber(stats.latency.median),speedNumber(stats.latency.p95)],
+      [sortLabel,stats.responses,stats.tps.count,stats.tps.avg,stats.tps.median,stats.tps.max,stats.latency.count,stats.latency.avg,stats.latency.median,stats.latency.p95]);
   }
+  applyTableSort(body);
 }
 function speedHeatmaps(rows,window,includeNative,metric){
   const daily=responseGroups(rows,'date',includeNative),clock=responseGroups(rows,'weekday-hour',includeNative);
@@ -127,8 +129,8 @@ function renderResponseSpeed(){
   speedTable($('speed-window-body'),comparisons,[['7',speedText('Last 7 days','最近7天')],['30',speedText('Last 30 days','最近30天')],['0',speedText('Overall','全部历史')]]);
   speedHeatmaps(rows,window,includeNative,$('speed-metric').value);
   const weekdays=speedText('Monday Tuesday Wednesday Thursday Friday Saturday Sunday','星期一 星期二 星期三 星期四 星期五 星期六 星期日').split(' ');
-  speedTable($('speed-weekday-body'),responseGroups(rows,'weekday',includeNative),weekdays.map((label,i)=>[String(i),label]));
-  speedTable($('speed-hour-body'),responseGroups(rows,'hour',includeNative),Array.from({length:24},(_,i)=>[String(i).padStart(2,'0'),String(i).padStart(2,'0')+':00']));
+  speedTable($('speed-weekday-body'),responseGroups(rows,'weekday',includeNative),weekdays.map((label,i)=>[String(i),label,i]));
+  speedTable($('speed-hour-body'),responseGroups(rows,'hour',includeNative),Array.from({length:24},(_,i)=>[String(i).padStart(2,'0'),String(i).padStart(2,'0')+':00',i]));
   const models=responseGroups(rows,'model',includeNative);
   speedTable($('speed-model-body'),models,[...models.keys()].sort().map(model=>[model,model]));
 }

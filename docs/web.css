@@ -25,3 +25,8 @@
 .usage-heading button { white-space:nowrap; }
 #snapshot-status { font-size:13px; margin:10px 0; }
 #snapshot-status.error { color:#a83d2f; }
+.table-sort { appearance:none; border:0; border-radius:3px; background:transparent; color:inherit; font:inherit; font-weight:inherit; padding:0; width:100%; text-align:inherit; white-space:nowrap; }
+.table-sort::after { content:'↕'; display:inline-block; margin-left:6px; opacity:.35; }
+th[aria-sort="ascending"] .table-sort::after { content:'↑'; opacity:1; }
+th[aria-sort="descending"] .table-sort::after { content:'↓'; opacity:1; }
+.table-sort:hover { background:transparent; color:#164f86; }

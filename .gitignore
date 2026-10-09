@@ -1,6 +1,8 @@
 *.ini
 !config.example.ini
 output/
+meter-history/
+daily-usage/
 build/
 release-output/
 *.spec

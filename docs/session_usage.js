@@ -1,4 +1,19 @@
 'use strict';
+// Sort raw values, never localized display strings; unavailable values stay last.
+function sortTableRows(rows, column, direction, values=row=>row, locale='en-US') {
+  if(!Number.isInteger(column)||column<0)throw new RangeError('Invalid table sort column');
+  if(!['ascending','descending'].includes(direction))throw new RangeError('Invalid table sort direction');
+  const compareText=new Intl.Collator(locale,{numeric:true,sensitivity:'base'}).compare;
+  const missing=value=>value===null||value===undefined||value===''||
+    (typeof value==='number'&&!Number.isFinite(value));
+  return rows.map((row,index)=>({row,index,value:values(row)[column]})).sort((a,b)=>{
+    const aMissing=missing(a.value),bMissing=missing(b.value);
+    if(aMissing||bMissing)return aMissing===bMissing?a.index-b.index:aMissing?1:-1;
+    const compared=typeof a.value==='number'&&typeof b.value==='number'
+      ?a.value-b.value:compareText(String(a.value),String(b.value));
+    return (direction==='ascending'?compared:-compared)||a.index-b.index;
+  }).map(item=>item.row);
+}
 function leaderPeriod(from, through) {
   if (!from && !through) return {unit:'month', monthly:true, label:''};
   const days = from && through ? (Date.parse(through+'T00:00:00Z')-Date.parse(from+'T00:00:00Z'))/86400000+1 : null;
@@ -277,4 +292,4 @@ function temporalRuns(dates, days) {
   });
   return runs;
 }
-if (typeof module !== 'undefined') module.exports = {usageBarSegments,wrapSnapshotText,snapshotLegendLayout,projectIdentity,summarizeProjects,projectDetails,timeResolution,timeSlot,timeLabels,timeLabel,chartBuckets,withNativeTPS,availableUsageModels,visibleSessionRows,leaderPeriod,modelsInDateRange,matchingModels,filterUsageRows,sessionIdentity,summarizeSessions,sessionDetails,sessionMatrix,jetColor,temporalRuns,temporalColor};
+if (typeof module !== 'undefined') module.exports = {sortTableRows,usageBarSegments,wrapSnapshotText,snapshotLegendLayout,projectIdentity,summarizeProjects,projectDetails,timeResolution,timeSlot,timeLabels,timeLabel,chartBuckets,withNativeTPS,availableUsageModels,visibleSessionRows,leaderPeriod,modelsInDateRange,matchingModels,filterUsageRows,sessionIdentity,summarizeSessions,sessionDetails,sessionMatrix,jetColor,temporalRuns,temporalColor};

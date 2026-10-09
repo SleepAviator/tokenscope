@@ -11,6 +11,7 @@ from unittest.mock import patch
 from app import (Collector, MAX_WORKER_FRAME, public_data, public_snapshot,
                  read_worker_frame, write_worker_frame)
 from collect import collect
+from daily_archive import DailyArchive
 from test_memory_aggregation import FixedDatetime, sources
 from update import aggregate, build
 
@@ -139,6 +140,45 @@ class PersistentMemoryCollectorTests(unittest.TestCase):
                 self.assertEqual(collector.data['sources']['local']['status'], 'fresh')
             finally:
                 collector.close()
+
+    def test_daily_archive_survives_worker_restart_offline_and_reconnect(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config, database = local_fixture(root)
+            before = database.read_bytes(), database.stat().st_mtime_ns
+            folder = root / 'daily'
+            archive = DailyArchive(folder, config, start_writer=False)
+            collector = Collector(config, 300)
+            collector.archive = archive
+            try:
+                self.assertTrue(collector.refresh())
+                self.await_result(collector)
+                self.assertEqual(sum(r['tokens'] for r in collector.data['rows']), 120)
+                self.assertTrue(collector.status()['daily_archive']['enabled'])
+                self.assertEqual(list(folder.iterdir()), [])
+            finally:
+                collector.close()
+                archive.close()
+            restored = DailyArchive(folder, config, start_writer=False)
+            restarted = Collector(config, 300)
+            restarted.archive = restored
+            restarted.data = restored.startup_snapshot()
+            database.rename(root / 'offline.db')
+            try:
+                self.assertTrue(restarted.refresh())
+                self.await_result(restarted)
+                self.assertEqual(restarted.data['sources']['local']['status'], 'archived')
+                self.assertEqual(sum(r['tokens'] for r in restarted.data['rows']), 120)
+                (root / 'offline.db').rename(database)
+                self.assertTrue(restarted.refresh())
+                self.await_result(restarted)
+                self.assertEqual(restarted.data['sources']['local']['status'], 'fresh')
+                self.assertEqual(sum(r['tokens'] for r in restarted.data['rows']), 120)
+                self.assertEqual(restarted.data['warnings'], [])
+                self.assertEqual((database.read_bytes(), database.stat().st_mtime_ns), before)
+            finally:
+                restarted.close()
+                restored.close()
 
     def test_failed_source_releases_read_lock_without_garbage_collection(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -23,7 +23,7 @@ python -m PyInstaller \
   --noconfirm --clean --onedir --name TokenScopeServer \
   --distpath "$DIST_DIR" --workpath "$BUILD_ROOT/work" --specpath "$BUILD_ROOT" \
   --hidden-import update --hidden-import collect --hidden-import live_meter --hidden-import live_probe \
-  --hidden-import live_telemetry \
+  --hidden-import live_telemetry --hidden-import meter_history --hidden-import daily_archive \
   --add-data "$PROJECT_ROOT/update.py:." --add-data "$PROJECT_ROOT/collect.py:." \
   --add-data "$PROJECT_ROOT/live_meter.py:." --add-data "$PROJECT_ROOT/live_probe.py:." \
   --add-data "$PROJECT_ROOT/live_telemetry.py:." \

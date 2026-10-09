@@ -95,7 +95,7 @@ class ProbeTelemetryTests(unittest.TestCase):
             samples=[sample('parent', tokens=300), sample('side', sid=SIDE, tokens=200)],
             covered=[opaque('codex', SID), opaque('codex', SIDE)])
         packet = validate_packet(probe.snapshot(BASE + 6))
-        result = project_sources({'Yienware': dict(packet=packet, received_at=100, error=None)}, 100)
+        result = project_sources({'lab-source': dict(packet=packet, received_at=100, error=None)}, 100)
         self.assertEqual(result['total_tps'], 100)
         self.assertEqual(result['average_tps'], 50)
         self.assertEqual(result['contributing_sessions'], 2)
@@ -107,12 +107,12 @@ class ProbeTelemetryTests(unittest.TestCase):
         live = validate_packet(probe.snapshot(BASE + 6))
         copied = dict(live, samples=[sample('copied-native-response-id', basis='native_log')])
         result = project_sources({
-            'Yienware': dict(packet=live, received_at=100, error=None),
-            'MBP14': dict(packet=copied, received_at=100, error=None)}, 100)
+            'lab-source': dict(packet=live, received_at=100, error=None),
+            'workstation': dict(packet=copied, received_at=100, error=None)}, 100)
         self.assertEqual(result['total_tps'], 60)
         self.assertEqual(result['average_tps'], 60)
         self.assertEqual(result['contributing_sessions'], 1)
-        self.assertEqual(result['sessions'][0]['source'], 'Yienware')
+        self.assertEqual(result['sessions'][0]['source'], 'lab-source')
 
     def test_only_matching_native_pending_is_replaced(self):
         probe = self.probe()
