@@ -21,21 +21,28 @@ def row(**kw):
 
 
 class Accounting(unittest.TestCase):
-    def test_monthly_leaders_use_summed_tokens_and_preserve_ties(self):
-        rows = [dict(date='2026-01-01', model='a', total_tokens=4),
-                dict(date='2026-01-02', model='a', total_tokens=4),
-                dict(date='2026-01-02', model='b', total_tokens=6),
-                dict(date='2026-02-01', model='a', total_tokens=2),
-                dict(date='2026-02-01', model='b', total_tokens=2)]
-        for r in rows:
-            r['cost_usd'] = '0.10' if r['model'] == 'a' else '0.90'
+    def test_monthly_leaders_use_summed_costs_and_preserve_ties(self):
+        rows = [dict(date='2026-01-01', model='a', total_tokens=4, cost_usd='0.10'),
+                dict(date='2026-01-02', model='a', total_tokens=4, cost_usd='0.10'),
+                dict(date='2026-01-02', model='b', total_tokens=6, cost_usd='0.90'),
+                dict(date='2026-02-01', model='a', total_tokens=2, cost_usd='0.30'),
+                dict(date='2026-02-01', model='b', total_tokens=20, cost_usd='0.30')]
         leaders = monthly_leaders(rows)
-        self.assertEqual(leaders[0]['cost_usd_by_model'], {'a': '0.20'})
-        self.assertEqual(leaders[1]['cost_usd_by_model'], {'a': '0.10', 'b': '0.90'})
-        self.assertEqual(leaders[0]['models'], ['a'])
-        self.assertEqual(leaders[0]['tokens'], 8)
-        self.assertEqual(leaders[0]['share'], 8 / 14)
+        self.assertEqual(leaders[0]['cost_usd_by_model'], {'b': '0.90'})
+        self.assertEqual(leaders[1]['cost_usd_by_model'], {'a': '0.30', 'b': '0.30'})
+        self.assertEqual(leaders[0]['models'], ['b'])
+        self.assertEqual(leaders[0]['tokens_by_model'], {'b': 6})
+        self.assertAlmostEqual(leaders[0]['share'], 9 / 11)
+        self.assertEqual(leaders[0]['ranking'], 'cost_usd')
+        self.assertEqual(leaders[0]['share_basis'], 'cost_usd')
         self.assertEqual(leaders[1]['models'], ['a', 'b'])
+        self.assertEqual(leaders[1]['tokens_by_model'], {'a': 2, 'b': 20})
+        self.assertEqual(leaders[1]['share'], .5)
+
+    def test_monthly_leaders_skip_zero_recorded_cost(self):
+        rows = [dict(date='2026-01-01', model='unpriced', total_tokens=1000, cost_usd='0')]
+        self.assertEqual(monthly_leaders(rows), [])
+        self.assertEqual(monthly_leaders([]), [])
 
     def test_model_labels_are_preserved(self):
         for model in ('example-model', 'example-model:cloud', 'vendor/example-model', 'unknown'):

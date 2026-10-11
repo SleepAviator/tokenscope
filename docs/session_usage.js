@@ -24,6 +24,28 @@ function leaderPeriod(from, through) {
   }
   return {unit,monthly:false,label:unit==='day'?from:unit==='month'?from.slice(0,7):`${from||'…'} → ${through||'…'}`};
 }
+// Input rows already respect the dashboard's date and model filters.
+function costLeaders(rows, period) {
+  const periods=new Map();
+  for(const row of rows){
+    const month=period.monthly?row.date.slice(0,7):'';
+    if(!periods.has(month))periods.set(month,new Map());
+    const models=periods.get(month);
+    const cost=Number(row.cost_usd);
+    if(!Number.isFinite(cost))throw new TypeError('Recorded estimated cost must be finite');
+    models.set(row.model,(models.get(row.model)||0)+cost);
+  }
+  const leaders=[];
+  for(const [month,models] of [...periods].sort()){
+    const costs=[...models.values()],total=costs.reduce((sum,cost)=>sum+cost,0),top=Math.max(...costs);
+    if(!(total>0&&top>0))continue;
+    // Preserve decimal-cost ties despite floating-point summation noise.
+    const tolerance=Number.EPSILON*Math.max(1,Math.abs(top))*8;
+    for(const [name,cost] of [...models].sort())if(cost>0&&Math.abs(cost-top)<=tolerance)
+      leaders.push({month,label:period.monthly?month:period.label,unit:period.unit,name,cost,share:100*cost/total});
+  }
+  return leaders;
+}
 function modelsInDateRange(rows, from, through) {
   return new Set(rows.filter(r => (!from || r.date >= from) && (!through || r.date <= through)).map(r => r.model));
 }
@@ -296,4 +318,4 @@ function temporalRuns(dates, days) {
   });
   return runs;
 }
-if (typeof module !== 'undefined') module.exports = {sortTableRows,usageBarSegments,wrapSnapshotText,snapshotLegendLayout,projectIdentity,summarizeProjects,projectDetails,timeResolution,timeSlot,timeLabels,timeLabel,chartBuckets,withNativeTPS,availableUsageModels,visibleSessionRows,leaderPeriod,modelsInDateRange,matchingModels,filterUsageRows,sessionIdentity,usageModelLabel,summarizeSessions,sessionDetails,sessionMatrix,jetColor,temporalRuns,temporalColor};
+if (typeof module !== 'undefined') module.exports = {sortTableRows,usageBarSegments,wrapSnapshotText,snapshotLegendLayout,projectIdentity,summarizeProjects,projectDetails,timeResolution,timeSlot,timeLabels,timeLabel,chartBuckets,withNativeTPS,availableUsageModels,visibleSessionRows,leaderPeriod,costLeaders,modelsInDateRange,matchingModels,filterUsageRows,sessionIdentity,usageModelLabel,summarizeSessions,sessionDetails,sessionMatrix,jetColor,temporalRuns,temporalColor};

@@ -330,14 +330,16 @@ def monthly_leaders(daily):
         totals[row['date'][:7]][row['model']] += int(row['total_tokens'])
         costs[row['date'][:7]][row['model']] += Decimal(row['cost_usd'])
     result = []
-    for month, models in sorted(totals.items()):
+    for month, models in sorted(costs.items()):
         top = max(models.values())
         if top <= 0:
             continue
         leaders = sorted(m for m, n in models.items() if n == top)
         result.append(dict(month=month, models=leaders,
-                           cost_usd_by_model={m: str(costs[month][m]) for m in leaders},
-                           tokens=top, share=top / sum(models.values())))
+                           cost_usd_by_model={m: str(models[m]) for m in leaders},
+                           tokens_by_model={m: totals[month][m] for m in leaders},
+                           ranking='cost_usd', share_basis='cost_usd',
+                           share=float(top / sum(models.values()))))
     return result
 
 
@@ -395,7 +397,7 @@ def render(daily, samples, out, summary):
         center = month_dates[0] + (month_dates[-1] - month_dates[0]) / 2
         model = leader['models'][0]
         name = '\n'.join(f"{m}\n${Decimal(leader['cost_usd_by_model'][m]):,.2f} est." for m in leader['models'])
-        label = f"{center:%b %Y}\n{name}\n{leader['share']:.0%} of month tokens"
+        label = f"{center:%b %Y}\n{name}\n{leader['share']:.0%} of month cost"
         right.text(center, .96 if i % 2 == 0 else .83, label,
                    transform=right.get_xaxis_transform(), ha='center', va='top',
                    fontsize=9, color='#242424', zorder=10,

@@ -263,8 +263,8 @@ function render(resetLimit=true){
   $('usage-chart-title').textContent=bilingual(slotName+' tokens and cost',hourly?`每 ${resolution.hours} 小时 Token 与费用`:'每日 Token 与费用');
   $('usage-cost-key').textContent=bilingual(`Black line: total estimated USD per ${hourly?resolution.hours+'-hour slot':'day'}, right axis.`,`黑色折线：每${hourly?resolution.hours+'小时':'日'}预估总费用（美元），右轴。`);
   $('chart').setAttribute('aria-label',slotName+' tokens by model with estimated cost line');
-  const titles={day:'Daily leading model',week:'Weekly leading model',month:'Monthly leading model',range:'Selected-range leading model'};
-  $('leaders-title').textContent=bilingual(titles[period.unit],{day:'当日领先模型',week:'所选7天领先模型',month:'月度领先模型',range:'所选时段领先模型'}[period.unit]);
+  const titles={day:'Daily highest-cost model',week:'Weekly highest-cost model',month:'Monthly highest-cost model',range:'Selected-range highest-cost model'};
+  $('leaders-title').textContent=bilingual(titles[period.unit],{day:'当日费用最高模型',week:'所选7天费用最高模型',month:'月度费用最高模型',range:'所选时段费用最高模型'}[period.unit]);
   const rows=filtered(), available=availableModels(), selectedCount=[...available].filter(model=>selected.has(model)).length;
   $('selection').textContent=bilingual(`Models · ${selectedCount} of ${available.size}`,`模型 · 已选 ${selectedCount} / ${available.size}`);
   renderSessions(resetLimit);
@@ -278,27 +278,17 @@ function render(resetLimit=true){
   $('empty').hidden=rows.length>0;$('chart-wrap').hidden=!rows.length;$('leaders').replaceChildren();$('tooltip').hidden=true;
   $('snapshot').disabled=!rows.length||snapshotPending;
   if(!rows.length){$('leaders').append(element('p',t('No usage matches these filters.')));return;}
-  const months=new Map();
-  for(const r of rows){
-    const month=period.monthly?r.date.slice(0,7):'';if(!months.has(month))months.set(month,new Map());const ms=months.get(month);
-    const m=ms.get(r.model)||{tokens:0,cost:0};m.tokens+=r.tokens;m.cost+=Number(r.cost_usd);ms.set(r.model,m);
+  const leaders=costLeaders(rows,period);
+  for(const leader of leaders){
+    const box=element('article',undefined,'leader');box.style.borderTopColor=color(leader.name);
+    box.append(element('span',leader.label),element('strong',leader.name),element('b',money(leader.cost)+bilingual(' est.','（预估）')),element('span',leaderShare(leader)));$('leaders').append(box);
   }
-  const leaders=[];
-  for(const [month,ms]of [...months].sort()){
-    const total=[...ms.values()].reduce((s,r)=>s+r.tokens,0);const max=Math.max(...[...ms.values()].map(r=>r.tokens));
-    if(!total)continue;
-    for(const [name,r]of ms)if(r.tokens===max){
-      const leader={month,label:period.monthly?month:period.label,unit:period.unit,name,cost:r.cost,share:100*r.tokens/total};
-      leaders.push(leader);
-      const box=element('article',undefined,'leader');box.style.borderTopColor=color(name);
-      box.append(element('span',leader.label),element('strong',name),element('b',money(r.cost)+bilingual(' est.','（预估）')),element('span',leaderShare(leader)));$('leaders').append(box);
-    }
-  }
+  if(!leaders.length)$('leaders').append(element('p',t('No positive recorded cost for these filters.')));
   draw(chartBuckets(hourly?filtered(data.hourly_rows):rows,resolution),leaders,resolution);
 }
 function leaderShare(leader){
-  const text=`${leader.share.toFixed(1)}% of ${leader.unit==='range'?'selected range':leader.unit} tokens`;
-  return bilingual(text,`占${{day:'当日',week:'所选7天',month:'当月',range:'所选时段'}[leader.unit]} Token 的 ${leader.share.toFixed(1)}%`);
+  const text=`${leader.share.toFixed(1)}% of ${leader.unit==='range'?'selected range':leader.unit} cost`;
+  return bilingual(text,`占${{day:'当日',week:'所选7天',month:'当月',range:'所选时段'}[leader.unit]}费用的 ${leader.share.toFixed(1)}%`);
 }
 function draw(days,leaders,resolution){
   const hourly=resolution.intraday;

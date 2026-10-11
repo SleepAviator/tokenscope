@@ -47,7 +47,7 @@ assert.equal(disabled.native_tps_count,0);
 assert.equal(enabled.tokens,disabled.tokens);
 assert.equal(rates[0].tps_count,2); // no mutation or repeated-refresh double count
 assert.equal(withNativeTPS([{}])[0].tps_count,0);
-const {leaderPeriod} = require('./session_usage.js');
+const {leaderPeriod,costLeaders} = require('./session_usage.js');
 assert.equal(leaderPeriod('2026-09-22','2026-09-22').unit,'day');
 assert.equal(leaderPeriod('2026-09-16','2026-09-22').unit,'week');
 assert.equal(leaderPeriod('2026-08-29','2026-09-04').unit,'week');
@@ -89,6 +89,40 @@ const rows = [
   {...base,date:'2026-02-02',model:'a',app:'Claude Code'},
 ];
 const all = new Set(['a','b']);
+const costRows=[
+  {date:'2026-01-31',model:'high-token',tokens:10000,cost_usd:'1'},
+  {date:'2026-01-31',model:'high-cost',tokens:1,cost_usd:'2'},
+  {date:'2026-02-01',model:'high-token',tokens:10000,cost_usd:'4'},
+  {date:'2026-02-01',model:'high-cost',tokens:1,cost_usd:'2'},
+];
+const originalCosts=JSON.stringify(costRows);
+const monthlyCosts=costLeaders(costRows,leaderPeriod('',''));
+assert.deepEqual(monthlyCosts.map(l=>[l.month,l.name]),[['2026-01','high-cost'],['2026-02','high-token']]);
+assert.equal(monthlyCosts[0].share,100*2/3);
+for(const [from,through,unit] of [['2026-01-31','2026-01-31','day'],['2026-01-26','2026-02-01','week'],['2026-01-01','2026-01-31','month'],['2026-01-30','2026-02-01','range']]){
+  const inRange=filterUsageRows(costRows,from,through,new Set(['high-token','high-cost']));
+  const leaders=costLeaders(inRange,leaderPeriod(from,through));
+  assert.equal(leaders.length,1);
+  assert.equal(leaders[0].unit,unit);
+  assert.equal(leaders[0].name,unit==='week'||unit==='range'?'high-token':'high-cost');
+}
+const selectedCosts=costLeaders(filterUsageRows(costRows,'','',new Set(['high-token'])),leaderPeriod('',''));
+assert.ok(selectedCosts.every(l=>l.name==='high-token'&&l.share===100),'cost leaders honor model filters');
+const costTies=costLeaders([
+  {date:'2026-01-01',model:'a',tokens:1,cost_usd:'0.10'},
+  {date:'2026-01-01',model:'a',tokens:1,cost_usd:'0.20'},
+  {date:'2026-01-01',model:'b',tokens:1000,cost_usd:'0.30'},
+],leaderPeriod('',''));
+assert.deepEqual(costTies.map(l=>l.name),['a','b'],'summed decimal costs preserve tied leaders, independent of token counts');
+assert.ok(costTies.every(l=>Math.abs(l.share-50)<1e-10));
+assert.deepEqual(costLeaders([{date:'2026-01-01',model:'unpriced',tokens:1000,cost_usd:'0'}],leaderPeriod('','')),[]);
+assert.deepEqual(costLeaders([
+  {date:'2026-01-01',model:'unpriced',tokens:1000,cost_usd:'0'},
+  {date:'2026-01-01',model:'priced',tokens:1,cost_usd:'1e-16'},
+],leaderPeriod('','')).map(l=>l.name),['priced'],'zero-cost models never become tied cost leaders');
+assert.deepEqual(costLeaders([],leaderPeriod('','')),[]);
+assert.throws(()=>costLeaders([{date:'2026-01-01',model:'invalid',cost_usd:'not a cost'}],leaderPeriod('','')),/cost must be finite/);
+assert.equal(JSON.stringify(costRows),originalCosts,'ranking must not mutate usage accounting');
 const reviewRows=[rows[1],{...rows[1],model:'codex-auto-review',tps_count:1,tps_sum:30,tps_max:30}];
 const reviewSession=summarizeSessions(reviewRows)[0];
 assert.deepEqual(reviewSession.models,['a','codex-auto-review']);

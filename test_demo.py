@@ -60,7 +60,7 @@ class SyntheticDemo(unittest.TestCase):
             if row['first_token_ms'] is not None:
                 self.assertGreater(row['first_token_ms'],0)
 
-    def test_monthly_leaders_change(self):
+    def test_monthly_token_leaders_change(self):
         data = synthetic_data()
         for month, expected in enumerate(('Atlas Code', 'Cedar Think', 'Orbit Local'), 1):
             totals = {}
@@ -68,6 +68,19 @@ class SyntheticDemo(unittest.TestCase):
                 if int(row['date'][5:7]) == month:
                     totals[row['model']] = totals.get(row['model'], 0) + row['tokens']
             self.assertEqual(max(totals, key=totals.get), expected)
+
+    def test_monthly_cost_leaders_differ_from_token_leaders(self):
+        from decimal import Decimal
+        from update import monthly_leaders
+        rows = [dict(row, total_tokens=row['tokens']) for row in synthetic_data()['rows']]
+        leaders = monthly_leaders(rows)
+        self.assertEqual([leader['models'] for leader in leaders],
+                         [['Atlas Code'], ['Cedar Think'], ['Cedar Think']])
+        for leader in leaders:
+            total = sum(Decimal(row['cost_usd']) for row in rows
+                        if row['date'].startswith(leader['month']))
+            cost = Decimal(leader['cost_usd_by_model'][leader['models'][0]])
+            self.assertAlmostEqual(leader['share'], float(cost / total))
 
     def test_session_titles_and_components_are_synthetic(self):
         data = synthetic_data()

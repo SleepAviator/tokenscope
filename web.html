@@ -20,7 +20,7 @@
 <section class="chart-card"><div class="usage-heading"><h2 id="usage-chart-title">Daily tokens and cost</h2><button id="snapshot" type="button" disabled>Download snapshot</button></div><p id="snapshot-status" role="status" hidden></p><p class="key">Colored bars: tokens by model, left axis. <b id="usage-cost-key">Black line: daily total estimated USD, right axis.</b></p>
 <div id="chart-wrap"><svg id="chart" role="img" aria-label="Daily tokens by model with daily estimated cost line"></svg></div><p id="empty" hidden>No usage matches these filters.</p>
 <div id="tooltip" role="status" hidden></div></section>
-<section><h2 id="leaders-title">Monthly leading model</h2><p>Most tokens within the selected dates and models, including cache. Costs below belong to that model, not all models.</p><div id="leaders"></div></section>
+<section><h2 id="leaders-title">Monthly highest-cost model</h2><p>Highest recorded estimated cost within the selected dates and models. Cost share is relative to the period total; zero-cost models are not cost leaders.</p><div id="leaders"></div></section>
 <section id="speed-panel" class="chart-card" aria-label="Per-response speed analysis">
 <h2>Per-response speed analysis</h2>
 <div class="actions">
