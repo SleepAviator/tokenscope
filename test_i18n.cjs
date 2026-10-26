@@ -8,6 +8,15 @@ function context(query='',saved=null,browser='en-US') {
 }
 let ctx=context('?lang=zh-CN','en');
 assert.equal(vm.runInContext("t('Fresh input')",ctx),'新增输入');
+for(const [en,zh] of [['This Month','本月'],['Past Month','过去一个月'],['This Year','今年'],['Past Year','过去一年']]){
+  ctx.key=en;assert.equal(vm.runInContext('t(key)',ctx),zh);
+}
+const tooltipAttributes={title:'Past 30 days, including today, in dashboard host time.'};
+ctx.document={documentElement:{},createTreeWalker:()=>({nextNode:()=>false})};
+ctx.NodeFilter={SHOW_TEXT:4};
+ctx.root={querySelectorAll:selector=>{assert.ok(selector.includes('[title]'));return [{getAttribute:key=>tooltipAttributes[key]??null,setAttribute:(key,value)=>{tooltipAttributes[key]=value;}}];}};
+vm.runInContext('const translateTooltip=staticTranslations(root);translateTooltip()',ctx);
+assert.equal(tooltipAttributes.title,'过去30天（含今天），按仪表板主机时间。');
 assert.equal(vm.runInContext("t('Atlas Code')",ctx),'Atlas Code');
 assert.equal(vm.runInContext("uiLocale()",ctx),'zh-CN');
 assert.equal(vm.runInContext("t('Last dashboard refresh: ')",ctx),'上次仪表板刷新：');
@@ -21,6 +30,8 @@ for(const [unit,label] of [['day','当日'],['week','所选7天'],['month','当�
 }
 assert.equal(vm.runInContext("bilingual('P95 first-token latency','P95 首 Token 延迟')",ctx),'P95 首 Token 延迟');
 vm.runInContext("language='en'",ctx);
+vm.runInContext('translateTooltip()',ctx);
+assert.equal(tooltipAttributes.title,'Past 30 days, including today, in dashboard host time.');
 for(const unit of ['day','week','month','range']){
   ctx.leader={unit,share:50};
   assert.equal(vm.runInContext('leaderShare(leader)',ctx),`50.0% of ${unit==='range'?'selected range':unit} cost`);

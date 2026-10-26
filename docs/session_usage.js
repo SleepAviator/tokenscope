@@ -14,6 +14,16 @@ function sortTableRows(rows, column, direction, values=row=>row, locale='en-US')
     return (direction==='ascending'?compared:-compared)||a.index-b.index;
   }).map(item=>item.row);
 }
+function quickDateRange(preset, anchor) {
+  const end=Date.parse(anchor+'T00:00:00Z');
+  if(!Number.isFinite(end)||new Date(end).toISOString().slice(0,10)!==anchor)throw new RangeError('Invalid dashboard host date');
+  const before=days=>new Date(end-days*86400000).toISOString().slice(0,10);
+  const starts={today:anchor,'past-seven-days':before(6),
+    'this-month':anchor.slice(0,7)+'-01','past-month':before(29),
+    'this-year':anchor.slice(0,4)+'-01-01','past-year':before(364)};
+  if(!Object.hasOwn(starts,preset))throw new RangeError('Unknown date shortcut');
+  return {from:starts[preset],through:anchor};
+}
 function leaderPeriod(from, through) {
   if (!from && !through) return {unit:'month', monthly:true, label:''};
   const days = from && through ? (Date.parse(through+'T00:00:00Z')-Date.parse(from+'T00:00:00Z'))/86400000+1 : null;
@@ -318,4 +328,4 @@ function temporalRuns(dates, days) {
   });
   return runs;
 }
-if (typeof module !== 'undefined') module.exports = {sortTableRows,usageBarSegments,wrapSnapshotText,snapshotLegendLayout,projectIdentity,summarizeProjects,projectDetails,timeResolution,timeSlot,timeLabels,timeLabel,chartBuckets,withNativeTPS,availableUsageModels,visibleSessionRows,leaderPeriod,costLeaders,modelsInDateRange,matchingModels,filterUsageRows,sessionIdentity,usageModelLabel,summarizeSessions,sessionDetails,sessionMatrix,jetColor,temporalRuns,temporalColor};
+if (typeof module !== 'undefined') module.exports = {quickDateRange,sortTableRows,usageBarSegments,wrapSnapshotText,snapshotLegendLayout,projectIdentity,summarizeProjects,projectDetails,timeResolution,timeSlot,timeLabels,timeLabel,chartBuckets,withNativeTPS,availableUsageModels,visibleSessionRows,leaderPeriod,costLeaders,modelsInDateRange,matchingModels,filterUsageRows,sessionIdentity,usageModelLabel,summarizeSessions,sessionDetails,sessionMatrix,jetColor,temporalRuns,temporalColor};

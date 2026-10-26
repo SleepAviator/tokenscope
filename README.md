@@ -292,7 +292,12 @@ to the Internet. Use `--host 127.0.0.1` for local-only access.
 The server refreshes immediately and then on local clock boundaries. The webpage
 accepts intervals from 5 to 600 seconds; 300 means :00, :05, :10, etc. Busy refreshes
 skip boundaries rather than overlap. Collection continues until Ctrl+C even if the
-browser closes. Filters are local to each browser. Leaders rank by summed recorded
+browser closes. Filters are local to each browser.
+Date shortcuts use the dashboard host date: **This Month/Year** are month/year to
+date; **Past Month/Year** are the past **30/365 days**, including today. Hover over
+a shortcut for its exact definition.
+
+Leaders rank by summed recorded
 estimated cost within the selected dates and models, including ties; their percentage
 is a share of the period's cost, not tokens. Periods with no positive recorded cost
 have no cost leader. Single-day and seven-day selections use

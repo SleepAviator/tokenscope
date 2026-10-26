@@ -9,7 +9,9 @@
 <section class="controls" aria-label="Usage filters">
 <p id="source-alert" class="error" role="alert" hidden></p>
 <label>From <input id="from" type="date"></label><label>Through <input id="through" type="date"></label>
-<button id="today">Today</button><button id="past-seven-days">Past 7 Days</button><button id="reset">All dates & models</button>
+<button id="today">Today</button><button id="past-seven-days">Past 7 Days</button>
+<button id="this-month" title="Month to date, in dashboard host time.">This Month</button><button id="past-month" title="Past 30 days, including today, in dashboard host time.">Past Month</button>
+<button id="this-year" title="Year to date, in dashboard host time.">This Year</button><button id="past-year" title="Past 365 days, including today, in dashboard host time.">Past Year</button><button id="reset">All dates & models</button>
 <label><input id="show-sessions" type="checkbox" aria-controls="session-panel">Show per-session usage</label>
 <label><input id="show-projects" type="checkbox" checked aria-controls="project-panel">Show per-project usage</label>
 <details id="model-filter"><summary id="selection">Models · all</summary>

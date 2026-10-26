@@ -429,14 +429,12 @@ async function poll(){
 }
 for(const id of ['from','through'])$(id).addEventListener('change',()=>{modelControls();render();});
 $('search').addEventListener('input',modelControls);
-function setQuickRange(pastSevenDays){
-  const end=new Date(),start=new Date(end);
-  if(pastSevenDays)start.setDate(start.getDate()-6);
-  const date=d=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
-  $('from').value=date(start);$('through').value=date(end);modelControls();render();
+function setQuickRange(preset){
+  const anchor=data?.host_date||new Intl.DateTimeFormat('en-CA',{timeZone:data?.host_timezone||status?.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+  const range=quickDateRange(preset,anchor);
+  $('from').value=range.from;$('through').value=range.through;modelControls();render();
 }
-$('today').onclick=()=>setQuickRange(false);
-$('past-seven-days').onclick=()=>setQuickRange(true);
+for(const id of ['today','past-seven-days','this-month','past-month','this-year','past-year'])$(id).onclick=()=>setQuickRange(id);
 $('all').onclick=()=>{selected=new Set(matchingModels(availableModels(),$('search').value));modelControls();render();};$('none').onclick=()=>{selected.clear();modelControls();render();};
 $('reset').onclick=()=>{$('from').value='';$('through').value='';$('search').value='';selected=new Set(known);modelControls();render();};
 async function action(path,body){try{await request(path,body);await poll();}catch(e){$('status').textContent=e.message;$('status').className='error';}}

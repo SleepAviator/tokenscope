@@ -92,6 +92,14 @@ const ZH = {
   "Temporal Session Token Usage": "会话 Token 用量时间分布",
   "Smooth colors interpolate between adjacent recorded time buckets, not additional measured activity. Gaps stay blank. Hover or focus for exact bucket totals. Includes input, cache and output tokens; historical rollups without session detail are excluded.": "平滑颜色仅在相邻的已记录时间段之间插值，不代表额外测量的活动。空缺保持空白。悬停或聚焦以查看精确用量。包含输入、缓存和输出 Token；不包含缺少会话详情的历史汇总。",
   "Past 7 Days": "过去7天",
+  "This Month": "本月",
+  "Past Month": "过去一个月",
+  "This Year": "今年",
+  "Past Year": "过去一年",
+  "Month to date, in dashboard host time.": "本月1日至今天，按仪表板主机时间。",
+  "Past 30 days, including today, in dashboard host time.": "过去30天（含今天），按仪表板主机时间。",
+  "Year to date, in dashboard host time.": "今年1月1日至今天，按仪表板主机时间。",
+  "Past 365 days, including today, in dashboard host time.": "过去365天（含今天），按仪表板主机时间。",
   "Date axis": "日期轴",
   "Session detail is unavailable in this snapshot. Refresh collection with the updated collector.": "当前快照没有会话明细，请使用新版采集器刷新。",
   "No saved conversation title matches this source record.": "该记录没有可匹配的已保存会话标题。",
@@ -200,8 +208,8 @@ function staticTranslations(root) {
     const node = walker.currentNode, value = node.textContent, key = value.trim();
     if (Object.hasOwn(ZH,key)) bindings.push(() => { node.textContent = value.replace(key,t(key)); });
   }
-  for (const node of root.querySelectorAll('[aria-label],[placeholder]')) {
-    for (const attr of ['aria-label','placeholder']) {
+  for (const node of root.querySelectorAll('[aria-label],[placeholder],[title]')) {
+    for (const attr of ['aria-label','placeholder','title']) {
       const key = node.getAttribute(attr);
       if (Object.hasOwn(ZH,key)) bindings.push(() => node.setAttribute(attr,t(key)));
     }
