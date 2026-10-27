@@ -434,7 +434,7 @@ function setQuickRange(preset){
   const range=quickDateRange(preset,anchor);
   $('from').value=range.from;$('through').value=range.through;modelControls();render();
 }
-for(const id of ['today','past-seven-days','this-month','past-month','this-year','past-year'])$(id).onclick=()=>setQuickRange(id);
+for(const id of ['today','past-seven-days','this-month','last-month','this-year','last-year'])$(id).onclick=()=>setQuickRange(id);
 $('all').onclick=()=>{selected=new Set(matchingModels(availableModels(),$('search').value));modelControls();render();};$('none').onclick=()=>{selected.clear();modelControls();render();};
 $('reset').onclick=()=>{$('from').value='';$('through').value='';$('search').value='';selected=new Set(known);modelControls();render();};
 async function action(path,body){try{await request(path,body);await poll();}catch(e){$('status').textContent=e.message;$('status').className='error';}}

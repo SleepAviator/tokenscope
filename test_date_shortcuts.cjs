@@ -7,19 +7,24 @@ const expected={
   today:['2026-10-26','2026-10-26'],
   'past-seven-days':['2026-10-20','2026-10-26'],
   'this-month':['2026-10-01','2026-10-26'],
-  'past-month':['2026-09-27','2026-10-26'],
+  'last-month':['2026-09-01','2026-09-30'],
   'this-year':['2026-01-01','2026-10-26'],
-  'past-year':['2025-10-27','2026-10-26'],
+  'last-year':['2025-01-01','2025-12-31'],
 };
 for(const [preset,[from,through]] of Object.entries(expected)){
   assert.deepEqual(quickDateRange(preset,anchor),{from,through});
 }
-assert.deepEqual(quickDateRange('past-month','2024-02-29'),{from:'2024-01-31',through:'2024-02-29'});
+assert.deepEqual(quickDateRange('last-month','2024-03-15'),{from:'2024-02-01',through:'2024-02-29'});
+assert.deepEqual(quickDateRange('last-month','2025-03-15'),{from:'2025-02-01',through:'2025-02-28'});
+assert.deepEqual(quickDateRange('last-month','2026-01-01'),{from:'2025-12-01',through:'2025-12-31'});
+assert.deepEqual(quickDateRange('last-year','2025-03-15'),{from:'2024-01-01',through:'2024-12-31'});
 assert.equal(quickDateRange('this-month','2024-02-29').from,'2024-02-01');
 assert.equal(quickDateRange('past-seven-days','2026-03-10').from,'2026-03-04'); // spring DST
 assert.equal(quickDateRange('past-seven-days','2026-11-01').from,'2026-10-26'); // autumn DST
 assert.equal(quickDateRange('this-year','2026-01-01').from,'2026-01-01');
-assert.equal(quickDateRange('past-year','2026-01-01').from,'2025-01-02');
+assert.deepEqual(quickDateRange('last-year','2026-01-01'),{from:'2025-01-01',through:'2025-12-31'});
+assert.throws(()=>quickDateRange('past-month',anchor),/Unknown date shortcut/);
+assert.throws(()=>quickDateRange('past-year',anchor),/Unknown date shortcut/);
 assert.throws(()=>quickDateRange('missing',anchor),/Unknown date shortcut/);
 assert.throws(()=>quickDateRange('today','2026-02-30'),/Invalid dashboard host date/);
 assert.throws(()=>quickDateRange('today','invalid'),/Invalid dashboard host date/);
@@ -55,7 +60,8 @@ assert.equal(nodes.through.value,'2025-12-31','fallback uses host date, not the 
 context.data.host_timezone='Asia/Tokyo';
 nodes.today.onclick();
 assert.equal(nodes.through.value,'2026-01-01');
-for(const [id,label] of [['this-month','This Month'],['past-month','Past Month'],['this-year','This Year'],['past-year','Past Year']]){
+for(const [id,label] of [['this-month','This Month'],['last-month','Last Month'],['this-year','This Year'],['last-year','Last Year']]){
   assert.match(html,new RegExp('id="'+id+'"[^>]*>'+label+'<'));
 }
-console.log('Date shortcuts: host date, rolling ranges, calendar boundaries, leap year, DST, wiring and unchanged model selection passed.');
+assert.ok(!html.includes('id="past-month"')&&!html.includes('id="past-year"'),'retired shortcuts must not appear');
+console.log('Date shortcuts: host date, full calendar ranges, leap year, DST, wiring and unchanged model selection passed.');

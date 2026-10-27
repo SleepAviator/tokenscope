@@ -18,11 +18,18 @@ function quickDateRange(preset, anchor) {
   const end=Date.parse(anchor+'T00:00:00Z');
   if(!Number.isFinite(end)||new Date(end).toISOString().slice(0,10)!==anchor)throw new RangeError('Invalid dashboard host date');
   const before=days=>new Date(end-days*86400000).toISOString().slice(0,10);
-  const starts={today:anchor,'past-seven-days':before(6),
-    'this-month':anchor.slice(0,7)+'-01','past-month':before(29),
-    'this-year':anchor.slice(0,4)+'-01-01','past-year':before(364)};
-  if(!Object.hasOwn(starts,preset))throw new RangeError('Unknown date shortcut');
-  return {from:starts[preset],through:anchor};
+  const previousMonthEnd=before(new Date(end).getUTCDate());
+  const previousYear=String(new Date(end).getUTCFullYear()-1).padStart(4,'0');
+  const ranges={
+    today:{from:anchor,through:anchor},
+    'past-seven-days':{from:before(6),through:anchor},
+    'this-month':{from:anchor.slice(0,7)+'-01',through:anchor},
+    'last-month':{from:previousMonthEnd.slice(0,7)+'-01',through:previousMonthEnd},
+    'this-year':{from:anchor.slice(0,4)+'-01-01',through:anchor},
+    'last-year':{from:previousYear+'-01-01',through:previousYear+'-12-31'},
+  };
+  if(!Object.hasOwn(ranges,preset))throw new RangeError('Unknown date shortcut');
+  return ranges[preset];
 }
 function leaderPeriod(from, through) {
   if (!from && !through) return {unit:'month', monthly:true, label:''};

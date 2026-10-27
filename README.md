@@ -294,7 +294,7 @@ accepts intervals from 5 to 600 seconds; 300 means :00, :05, :10, etc. Busy refr
 skip boundaries rather than overlap. Collection continues until Ctrl+C even if the
 browser closes. Filters are local to each browser.
 Date shortcuts use the dashboard host date: **This Month/Year** are month/year to
-date; **Past Month/Year** are the past **30/365 days**, including today. Hover over
+date; **Last Month/Year** select the **previous full calendar month/year**. Hover over
 a shortcut for its exact definition.
 
 Leaders rank by summed recorded
